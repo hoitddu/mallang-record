@@ -66,6 +66,12 @@ export function Player({
       t = 0;
       still = true;
     }
+    if (timeline.draw) {
+      // 그림책처럼 장면을 직접 그리는 방식 (영상 만들기와 같은 코드)
+      timeline.draw(ctx, W, H, t, still ? now : undefined);
+      if (bar.current) bar.current.style.transform = `scaleX(${still ? 0 : Math.min(1, t / Math.max(0.1, audioEnd - audioStart))})`;
+      return;
+    }
     const { scene, frame } = sceneAt(timeline, t);
     if (still) {
       renderScene(ctx, W, H, { ...scene, captionReveal: 1, alpha: 1 }, { ...IDLE_FRAME, t: now });

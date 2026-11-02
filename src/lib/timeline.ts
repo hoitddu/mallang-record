@@ -17,6 +17,11 @@ export interface Timeline {
   offsets: number[];
   total: number;
   gap: number;
+  /**
+   * 장면을 직접 그리는 방식 (예: 그림책). 있으면 미리보기·영상 모두 이걸로 그림.
+   * idleNow가 있으면 "재생 전 멈춘 화면" (첫 장면, 움직임은 쉬는 상태)
+   */
+  draw?: (ctx: CanvasRenderingContext2D, W: number, H: number, t: number, idleNow?: number) => void;
 }
 
 export function buildTimeline(items: TimelineItem[], lead = 0.5, gap = 0.8, tail = 1.0): Timeline {
@@ -37,6 +42,19 @@ export function timelineAudio(tl: Timeline): AudioBuffer {
   );
 }
 
+/** 한 기록의 움직임: 소리가 o초에 시작할 때, 시각 t의 움직임 (자르기 범위 밖은 쉬는 상태로) */
+export function itemFrame(it: TimelineItem, o: number, t: number): MotionFrame {
+  const local = it.trimStart + (t - o);
+  const end = it.trimEnd;
+  if (local < it.trimStart) return { ...frameAt(null, 0), t: local };
+  if (local > end) {
+    const f = frameAt(it.track, end);
+    const d = Math.exp(-(local - end) / 0.15);
+    return { ...f, lvl: f.lvl * d, spring: f.spring * d, pulse: f.pulse * d, speak: f.speak * d, t: local };
+  }
+  return frameAt(it.track, local);
+}
+
 /** 시각 t에 보여줄 장면과 움직임 */
 export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: MotionFrame } {
   const n = tl.items.length;
@@ -44,17 +62,8 @@ export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: Mot
   while (i < n - 1 && t >= tl.offsets[i + 1] - tl.gap / 2) i++;
   const it = tl.items[i];
   const o = tl.offsets[i];
-  const local = it.trimStart + (t - o);
   const end = it.trimEnd;
-  // 자르기 범위 밖의 소리는 움직임에도 쓰지 않음
-  let frame: MotionFrame;
-  if (local < it.trimStart) frame = { ...frameAt(null, 0), t: local };
-  else if (local > end) {
-    const f = frameAt(it.track, end);
-    const over = local - end;
-    const d = Math.exp(-over / 0.15);
-    frame = { ...f, lvl: f.lvl * d, spring: f.spring * d, pulse: f.pulse * d, speak: f.speak * d, t: local };
-  } else frame = frameAt(it.track, local);
+  const frame = itemFrame(it, o, t);
 
   const fv = it.track.firstVoice >= it.trimStart && it.track.firstVoice <= end ? it.track.firstVoice : it.trimStart + 0.15;
   const revealAt = o + (fv - it.trimStart);

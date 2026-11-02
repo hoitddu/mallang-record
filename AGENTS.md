@@ -102,6 +102,7 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 - **부위별 움직임**(귀·꼬리·눈 깜빡임)은 `src/lib/rigs.ts`(부위 정의)와 `render.ts`의 `partAngle`·`drawRigPart`·`drawEyes`에 있습니다. 조각 그림은 `scripts/make-rig.py`로 만들고(`python3 scripts/make-rig.py`, 약 1~2분), `src/assets/rig/`의 파일을 손으로 고치지 마세요.
 - **새 기본 그림을 넣을 때**는 `make-rig.py`의 `EYES_ONLY`에 눈 위치(0~1 좌표)를 추가하고 스크립트를 다시 돌리면 눈 깜빡임이 붙습니다. 귀·꼬리 같은 부위를 움직이려면 같은 파일의 `main()`과 `src/lib/rigs.ts`의 `PARTS`에 부위를 추가하세요.
 - 화면 이동은 `src/store.tsx`의 `Route`에 이름을 추가하고 `src/App.tsx`에서 연결합니다.
+- **그림책 잇기**는 `src/lib/book.ts`에 있고, `Timeline.draw`를 통해 미리보기(`Player`)와 영상(`exporter`)이 같은 코드로 그립니다. 책 모양을 추가할 때는 `BOOK_LAYOUTS`와 `drawBook`에 모양 하나를 더하면 됩니다. 아이가 한 말은 `Clip.utterance`(옛 기록은 `utteranceOf`로 계산)입니다.
 - 새 화면은 휴대폰 세로 화면(390px 폭 기준)에서 먼저 보기 좋게 만드세요.
 
 ## 9. 배포 설정
