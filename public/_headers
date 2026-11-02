@@ -1,0 +1,4 @@
+/sw.js
+  Cache-Control: no-cache
+/*
+  Permissions-Policy: microphone=(self)

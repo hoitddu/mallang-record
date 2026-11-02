@@ -1,0 +1,179 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 말랑기록 — 색종이 그림책 편집 앱
+   종이(아이보리) 위에 오려 붙인 색종이 조각 같은 버튼과 카드 */
+:root {
+  --paper: #fbf6ec;
+  --sheet: #fffdf8;
+  --ink: #3a3350;
+  --soft: #7d7590;
+  --line: #eadfcb;
+  --tangerine: #f2803a;
+  --leaf: #5da567;
+  --sky: #6db8e0;
+  --berry: #e4574a;
+  --butter: #f6cd4c;
+  color-scheme: light;
+}
+
+html,
+body {
+  background: var(--paper);
+  color: var(--ink);
+}
+body {
+  font-family: 'Gowun Dodum', system-ui, -apple-system, 'Apple SD Gothic Neo', sans-serif;
+  -webkit-tap-highlight-color: transparent;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior-y: none;
+  background-image: radial-gradient(rgba(160, 120, 70, 0.05) 1px, transparent 1.2px);
+  background-size: 7px 7px;
+}
+#root {
+  min-height: 100dvh;
+}
+h1, h2, h3 {
+  text-wrap: balance;
+}
+button {
+  touch-action: manipulation;
+}
+:focus-visible {
+  outline: 3px solid var(--sky);
+  outline-offset: 2px;
+}
+
+@layer components {
+  .page {
+    @apply mx-auto w-full max-w-[560px];
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+    padding-block: 12px 32px;
+  }
+  /* 손으로 오린 듯 살짝 고르지 않은 모서리 */
+  .cut {
+    border-radius: 22px 18px 24px 16px / 18px 24px 16px 22px;
+  }
+  .cut-b {
+    border-radius: 16px 22px 18px 24px / 22px 16px 24px 18px;
+  }
+  .btn {
+    @apply cut inline-flex items-center justify-center gap-2 px-5 py-3 font-display text-[17px] leading-none shadow-paper transition-transform select-none;
+  }
+  .btn:active {
+    transform: translateY(2px) scale(0.99);
+    box-shadow: 0 1px 0 rgba(90, 70, 40, 0.12);
+  }
+  .btn:disabled {
+    @apply opacity-40;
+  }
+  .btn-main {
+    @apply btn bg-tangerine text-white;
+  }
+  .btn-leaf {
+    @apply btn bg-leaf text-white;
+  }
+  .btn-sky {
+    @apply btn bg-sky text-white;
+  }
+  .btn-sheet {
+    @apply btn bg-sheet text-ink;
+  }
+  .btn-ghost {
+    @apply cut inline-flex items-center justify-center gap-1.5 px-3 py-2 font-display text-[15px] text-soft;
+  }
+  .card {
+    @apply cut-b bg-sheet shadow-paper;
+  }
+  .chip {
+    @apply cut whitespace-nowrap px-3.5 py-2 font-display text-[15px] leading-none text-soft bg-transparent;
+    box-shadow: inset 0 0 0 1.5px var(--line);
+  }
+  .chip[aria-pressed='true'] {
+    @apply bg-ink text-white;
+    box-shadow: none;
+  }
+  .label {
+    @apply font-display text-[15px] text-ink;
+  }
+  .hint {
+    @apply text-[13px] leading-snug text-soft;
+  }
+  .field {
+    @apply cut w-full bg-white px-4 py-3 text-[16px] text-ink outline-none;
+    box-shadow: inset 0 0 0 1.5px var(--line);
+  }
+  .field:focus {
+    box-shadow: inset 0 0 0 2px var(--sky);
+  }
+}
+
+input[type='range'] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 28px;
+  background: transparent;
+}
+input[type='range']::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 8px;
+  background: var(--line);
+}
+input[type='range']::-moz-range-track {
+  height: 8px;
+  border-radius: 8px;
+  background: var(--line);
+}
+input[type='range']::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 26px;
+  height: 26px;
+  margin-top: -9px;
+  border-radius: 50% 46% 52% 48%;
+  background: var(--tangerine);
+  box-shadow: 0 2px 0 rgba(90, 70, 40, 0.18);
+}
+input[type='range']::-moz-range-thumb {
+  width: 26px;
+  height: 26px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--tangerine);
+}
+
+.checker {
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #efe8da 25%, transparent 25%), linear-gradient(-45deg, #efe8da 25%, transparent 25%),
+    linear-gradient(45deg, transparent 75%, #efe8da 75%), linear-gradient(-45deg, transparent 75%, #efe8da 75%);
+  background-size: 18px 18px;
+  background-position: 0 0, 0 9px, 9px -9px, -9px 0;
+}
+
+@keyframes pop-in {
+  from {
+    transform: translateY(8px) scale(0.98);
+    opacity: 0.4;
+  }
+  to {
+    transform: none;
+    opacity: 1;
+  }
+}
+.pop-in {
+  animation: pop-in 0.22s ease-out both;
+}
+@keyframes pulse-dot {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.12); }
+}
+.rec-pulse {
+  animation: pulse-dot 1.2s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pop-in, .rec-pulse {
+    animation: none;
+  }
+}

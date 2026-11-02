@@ -1,0 +1,99 @@
+export type Category = 'fruit' | 'animal' | 'thing' | 'custom';
+
+export type AnimType = 'squish' | 'hop' | 'float' | 'fly' | 'swim' | 'cozy' | 'roll';
+
+export interface AnimSettings {
+  type: AnimType;
+  /** 움직임 강도 0.3 ~ 2 (기본 1) */
+  intensity: number;
+  /** 움직임 속도 0.5 ~ 2 (기본 1) */
+  speed: number;
+  /** 목소리 반응 민감도 0 ~ 1 (기본 0.5) */
+  sensitivity: number;
+  /** 효과선(바람선·물결·소리 파동) */
+  effects: boolean;
+  /** 반짝임(별·하트·물방울) */
+  sparkles: boolean;
+  /** 기본 그림의 입이 목소리에 맞춰 열리기 (false면 미소로 고정). 없으면 켜짐 */
+  mouth?: boolean;
+}
+
+export interface ImgTransform {
+  /** 1 = 그림 상자에 꼭 맞게 */
+  scale: number;
+  /** 그림 상자 한 변 대비 이동 비율 (-0.5 ~ 0.5) */
+  x: number;
+  y: number;
+}
+
+export interface Picture {
+  id: string;
+  name: string;
+  category: Category;
+  /** 기본 그림이면 원본 그림 키 */
+  builtinKey?: string;
+  /** 사용자가 올린 그림 (배경 제거 결과가 있으면 그 결과) */
+  image?: Blob;
+  /** 사용자가 올린 원본 (배경 제거 전) */
+  originalImage?: Blob;
+  anim: AnimSettings;
+  transform: ImgTransform;
+  hidden?: boolean;
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface CaptionSettings {
+  show: boolean;
+  text: string;
+  /** voice: 목소리가 나오면 나타남 / always: 처음부터 */
+  mode: 'voice' | 'always';
+  /** 0.6 ~ 1.6 */
+  size: number;
+  /** 0(위쪽) ~ 1(아래쪽) */
+  position: number;
+  color: string;
+  font: 'hand' | 'gothic';
+}
+
+export interface PictureSnapshot {
+  name: string;
+  builtinKey?: string;
+  image?: Blob;
+  transform: ImgTransform;
+}
+
+export interface Clip {
+  id: string;
+  pictureId: string;
+  pictureSnapshot: PictureSnapshot;
+  word: string;
+  createdAt: number;
+  audio: Blob;
+  mime: string;
+  duration: number;
+  source: 'mic' | 'audio' | 'video';
+  anim: AnimSettings;
+  caption: CaptionSettings;
+  title: string;
+  showTitle: boolean;
+  showDate: boolean;
+  showMonths: boolean;
+  months?: number;
+  trimStart: number;
+  trimEnd: number;
+}
+
+export interface Settings {
+  childName: string;
+  birthDate?: string;
+}
+
+export interface Draft {
+  id: 'last';
+  pictureId: string;
+  audio: Blob;
+  mime: string;
+  source: Clip['source'];
+  createdAt: number;
+}
