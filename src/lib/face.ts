@@ -102,8 +102,8 @@ export interface FacePatches {
 }
 
 /** 오린 조각의 가로·세로 크기 (눈: 실제 눈 너비의 EYE_CROP배를 담음) */
-export const EYE_W = 144, EYE_H = 90, EYE_CROP = 1.7;
-export const MOUTH_W = 176, MOUTH_H = 124, MOUTH_CROP = 1.5;
+export const EYE_W = 144, EYE_H = 96, EYE_CROP = 2.2;
+export const MOUTH_W = 176, MOUTH_H = 144, MOUTH_CROP = 1.95;
 
 const mk = (w: number, h: number) => {
   const c = document.createElement('canvas');
@@ -193,7 +193,7 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
     const a = pts[E.outer], b = pts[E.inner];
     const w = Math.hypot(b.x - a.x, b.y - a.y);
     const cen = centroid(E.ring.map((i) => pts[i]));
-    cutOut(c, src, cen, roll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.25, 1.75], E.lid.map((i) => pts[i]));
+    cutOut(c, src, cen, roll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.55, 2.4], E.lid.map((i) => pts[i]), false, [1.25, 1.6]);
     stylize(c, L, { ink, dark: ink, lip: null, skin: o.skinEye ?? null, mouth: false });
   };
   // 거울 모드면 사진 오른쪽 눈(B)이 화면 왼쪽으로
@@ -204,7 +204,7 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
   const ml = pts[MOUTH_L], mr = pts[MOUTH_R];
   const mw = Math.hypot(mr.x - ml.x, mr.y - ml.y);
   const lips = LIPS_OUTER.map((i) => pts[i]);
-  cutOut(P.mouth, src, centroid(lips), roll, (mw * MOUTH_CROP) / MOUTH_W, o.mirror, lips, [1.15, 1.35], lips, true);
+  cutOut(P.mouth, src, centroid(lips), roll, (mw * MOUTH_CROP) / MOUTH_W, o.mirror, lips, [1.32, 1.6], lips, true, [1.14, 1.25]);
   const lip = o.lip ?? '#C9606E';
   stylize(P.mouth, L, { ink, dark: mixHex(lip, ink, 0.45), lip, skin: o.skinMouth ?? null, mouth: true });
   return P;
@@ -220,7 +220,7 @@ function centroid(ps: Pt[]): Pt {
  * c에 src의 cen 주변을 기울기 roll만큼 바로 세워 오려 담고, ring 다각형 바깥은 부드럽게 지움.
  * scale: 조각 1픽셀 = 원본 몇 픽셀. grow: 다각형을 [가로, 세로]로 키우는 비율. line: 그림 선을 그릴 점들
  */
-function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number], line: Pt[], closed = false) {
+function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number], line: Pt[], closed = false, coreGrow: [number, number] = [1, 1]) {
   const W = c.width, H = c.height;
   const g = c.getContext('2d', { willReadFrequently: true })!;
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -274,7 +274,8 @@ function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: num
   // 안쪽(눈·입술 자체) 표시: 키우지 않은 다각형 → 그 밖은 피부로 보고 캐릭터 색으로 바꿈
   ms.clearRect(0, 0, maskSmall.width, maskSmall.height);
   ms.beginPath();
-  poly.forEach((p, i) => (i ? ms.lineTo(p.x * kx, p.y * ky) : ms.moveTo(p.x * kx, p.y * ky)));
+  const cp = poly.map((p) => ({ x: pc.x + (p.x - pc.x) * coreGrow[0], y: pc.y + (p.y - pc.y) * coreGrow[1] }));
+  cp.forEach((p, i) => (i ? ms.lineTo(p.x * kx, p.y * ky) : ms.moveTo(p.x * kx, p.y * ky)));
   ms.closePath();
   ms.fill();
   mb.clearRect(0, 0, maskBig.width, maskBig.height);
@@ -352,31 +353,33 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
     if (k > 0.01) {
       // 2) 채도 낮추기 (입술은 색을 덜 빼서 생기 있게)
       const yy = (0.299 * r + 0.587 * gg + 0.114 * b);
-      const sat2 = o.mouth && core ? sat + (1 - sat) * 0.6 * (core[p] / 255) : sat;
+      const inCore = core ? core[p] / 255 : 0;
+      const sat2 = o.mouth ? sat + (1 - sat) * inCore : sat;
       r = yy + (r - yy) * sat2;
       gg = yy + (gg - yy) * sat2;
       b = yy + (b - yy) * sat2;
       // 3) 밝고 색이 옅은 곳(흰자·이) → 종이색 (입속 이는 덜 눈부시게)
-      const wv = k * (o.mouth ? 0.55 : 0.85) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s));
+      const wv = k * (o.mouth ? 0.12 : 0.8) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s));
       const pw = o.mouth ? 0.93 : 1;
       r += (PAPER[0] * pw - r) * wv;
       gg += (PAPER[1] * pw - gg) * wv;
       b += (PAPER[2] * pw - b) * wv;
       // 4) 어두운 곳(눈동자·속눈썹 / 입속) → 그림 선 색 / 따뜻한 어두운 색
-      const dv = k * 0.7 * (1 - sstep(0.12, 0.42, y));
+      // (입속은 어둡게 칠하지 않음 — 이·혀가 그대로 보이게)
+      const dv = o.mouth ? 0 : k * 0.5 * (1 - sstep(0.1, 0.35, y));
       r += (dr - r) * dv;
       gg += (dg - gg) * dv;
       b += (db - b) * dv;
       // 5) 붉은 곳(입술) → 캐릭터 입 색 쪽으로
       if (lc) {
         const red = sstep(0.08, 0.3, s) * sstep(0.02, 0.12, (d[i] - d[i + 2]) / 255) * (1 - sstep(0.7, 0.9, y)) * (core ? core[p] / 255 : 1);
-        const lv = (0.25 + k * 0.45) * red;
+        const lv = 0.15 * k * red;
         r += (lc[0] - r) * lv;
         gg += (lc[1] - gg) * lv;
         b += (lc[2] - b) * lv;
       }
       // 6) 그림처럼 단계 나누기 (그림에 가까울수록)
-      if (k > 0.5) {
+      if (k > 0.5 && !(o.mouth && inCore > 0.5)) {
         const q = 255 / 6;
         const m = (k - 0.5) * 0.8;
         r += (Math.round(r / q) * q - r) * m;
@@ -403,7 +406,8 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
   }
   // 그림 선 (눈: 윗눈꺼풀, 입: 입술 둘레) — 그림에 가까울수록 진하게
   const ln = lineCache.get(c);
-  if (ln && ln.pts.length > 1 && k > 0.05) {
+  // 입은 선을 긋지 않음(입술이 어두워 보이지 않게)
+  if (ln && ln.pts.length > 1 && k > 0.05 && !ln.closed) {
     g.save();
     g.globalAlpha = Math.min(1, (ln.closed ? 0.1 + 0.5 * k : 0.2 + 0.75 * k));
     g.strokeStyle = ln.closed && o.lip ? mixHex(o.lip, o.ink, 0.25) : o.ink;
