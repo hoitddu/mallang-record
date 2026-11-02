@@ -1,4 +1,5 @@
 import { BUILTIN_MAP, type MouthMeta } from './builtins';
+import { RIGS, type EyeDef, type RigDef } from './rigs';
 import type { ImgTransform, Picture, PictureSnapshot } from './types';
 
 export interface PreparedPart {
@@ -17,6 +18,35 @@ export interface Prepared {
   builtin: boolean;
   /** 기본 그림의 입 자리 (그림에서 입을 지워 두었음) */
   mouth?: MouthMeta;
+  /** 부위별 움직임 (시범 캐릭터만): 바탕·부위·눈 조각 */
+  rig?: PreparedRig;
+}
+
+export interface PreparedRig {
+  base: HTMLCanvasElement;
+  parts: { def: RigDef['parts'][number]; img: HTMLCanvasElement }[];
+  eyes: EyeDef[];
+  eyeImg: HTMLCanvasElement;
+  seed: number;
+}
+
+async function toCanvas(src: string) {
+  const im = await loadImage(src);
+  const c = makeCanvas(im.naturalWidth, im.naturalHeight);
+  c.getContext('2d')!.drawImage(im, 0, 0);
+  return c;
+}
+
+/** 부위별 움직임 조각 불러오기. 하나라도 실패하면 부위 움직임 없이 원본 그림으로 */
+async function prepareRig(key: string): Promise<PreparedRig | undefined> {
+  const r = RIGS[key];
+  if (!r) return undefined;
+  try {
+    const [base, eyeImg, ...parts] = await Promise.all([toCanvas(r.base), toCanvas(r.eyesSrc), ...r.parts.map((p) => toCanvas(p.src))]);
+    return { base, eyeImg, eyes: r.eyes, seed: r.seed, parts: r.parts.map((def, i) => ({ def, img: parts[i] })) };
+  } catch {
+    return undefined;
+  }
 }
 
 export function loadImage(src: string): Promise<HTMLImageElement> {
@@ -134,7 +164,8 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
       const im = await loadImage(def.src);
       const c = makeCanvas(im.naturalWidth, im.naturalHeight);
       c.getContext('2d')!.drawImage(im, 0, 0);
-      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth };
+      const rig = await prepareRig(def.key);
+      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig };
     })();
     cache.set(key, p);
     p.catch(() => cache.delete(key));

@@ -1,4 +1,4 @@
-import type { Prepared } from './images';
+import type { Prepared, PreparedRig } from './images';
 import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
 import type { AnimSettings, CaptionSettings, ImgTransform } from './types';
@@ -479,7 +479,14 @@ export function drawIllustration(
     ctx.rotate(pose.rot);
     ctx.scale(pose.sx, pose.sy);
   }
-  if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
+  const rig = prep.rig;
+  if (rig) {
+    // 부위별 움직임: 바탕 → 부위(뿌리를 축으로 휨) → 눈(깜빡임). 몸 전체 물결(warp) 대신 부위가 움직임
+    pose.warp = undefined;
+    ctx.drawImage(rig.base, -dw / 2, -dh / 2, dw, dh);
+    for (const part of rig.parts) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
+    drawEyes(ctx, rig, dw, dh, t, lvl);
+  } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
   else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
   // 회전 부품 (기본 유모차 바퀴)
   for (const p of prep.parts) {
@@ -514,6 +521,205 @@ export function drawIllustration(
     if (a.type === 'cozy' || a.type === 'heartbeat') drawHearts(ctx, S, bx, top, dw, m);
     else if (a.type === 'swim' || a.type === 'leap') drawBubbles(ctx, S, bx + pose.dx + dw * 0.35, top + dh * 0.2, m);
     else drawStars(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
+  }
+}
+
+// ───────── 부위별 움직임 (2D 뼈대) ─────────
+
+/** 부위가 얼마나 기울지 (라디안). 어떤 움직임 방식을 골라도 목소리 신호로 자연스럽게 반응 */
+function partAngle(def: PreparedRig['parts'][number]['def'], a: AnimSettings, m: MotionFrame): number {
+  const k = a.intensity;
+  const sp = a.speed;
+  const t = m.t;
+  const spr = clamp(m.spring, -0.3, 1.3);
+  const lvl = clamp(m.lvl, 0, 1);
+  const pulse = clamp(m.pulse, 0, 1);
+  const speak = clamp(m.speak, 0, 1);
+  const side = def.side ?? 1;
+  const ph = side > 0 ? 1.3 : 0; // 양쪽이 똑같이 움직이지 않게
+  switch (def.drive) {
+    case 'earUp': {
+      // 쫑긋 귀: 목소리만큼 바깥으로 벌어지고, 소리가 툭 커지면 출렁 + 평소엔 살랑
+      const spread = 0.17 * k * clamp(spr, -0.1, 1.2);
+      const jiggle = 0.14 * k * pulse * Math.sin(t * 23 * sp + ph);
+      const idle = 0.035 * Math.sin(t * 1.7 * sp + ph) + 0.05 * speak * Math.sin(m.phase * 0.9 + ph);
+      return side * (spread + jiggle) + idle;
+    }
+    case 'earFlop': {
+      // 늘어진 귀: 목소리에 바깥으로 펄럭 들렸다 내려옴
+      const lift = 0.16 * k * clamp(spr, -0.1, 1.2) + 0.1 * k * lvl * (0.5 + 0.5 * Math.sin(t * 14 * sp + ph));
+      const jiggle = 0.1 * k * pulse * Math.sin(t * 20 * sp + ph);
+      const idle = 0.025 * Math.sin(t * 1.3 * sp + ph);
+      return -side * (lift + jiggle) + idle;
+    }
+    case 'tailWag': {
+      // 꼬리: 평소엔 천천히, 말할수록 빠르고 크게 살랑살랑
+      const speed = (2.2 + 11 * speak + 5 * lvl) * sp;
+      const amp = 0.12 + 0.32 * k * speak + 0.18 * k * lvl;
+      return Math.sin(t * speed) * amp;
+    }
+    case 'pom': {
+      // 방울 꼬리: 소리마다 달랑
+      return 0.28 * k * pulse * Math.sin(t * 22 * sp) + 0.06 * k * spr + 0.03 * Math.sin(t * 2 * sp);
+    }
+    case 'fluke': {
+      // 꼬리지느러미: 말하는 동안 물을 차듯 크게, 평소엔 천천히 살랑
+      const amp = 0.1 + 0.3 * k * speak + 0.14 * k * lvl;
+      return Math.sin(m.phase * 1.6 + t * 1.8 * sp) * amp;
+    }
+  }
+  return 0;
+}
+
+/** 부위 조각을 뿌리(pivot) 기준으로 휘게 그리기: 작은 삼각형으로 나눠 각각 옮겨 그림 */
+function drawRigPart(
+  ctx: CanvasRenderingContext2D,
+  part: PreparedRig['parts'][number],
+  iw: number,
+  ih: number,
+  dw: number,
+  dh: number,
+  angle: number
+) {
+  const d = part.def;
+  const [x0, y0, x1, y1] = d.box;
+  const px = d.pivot[0] * iw, py = d.pivot[1] * ih;
+  const ax = (d.tip[0] - d.pivot[0]) * iw, ay = (d.tip[1] - d.pivot[1]) * ih;
+  const L = Math.hypot(ax, ay) || 1;
+  const ux = ax / L, uy = ay / L;
+  const kx = dw / iw, ky = dh / ih;
+  // 통째로 도는 부위이거나 거의 안 움직이면 조각 없이 한 번에 그림 (가볍게)
+  if (d.bend === 0 || Math.abs(angle) < 0.004) {
+    ctx.save();
+    const ppx = -dw / 2 + px * kx, ppy = -dh / 2 + py * ky;
+    ctx.translate(ppx, ppy);
+    ctx.rotate(d.bend === 0 ? angle : 0);
+    ctx.translate(-ppx, -ppy);
+    const bx = x0 * iw, by = y0 * ih, bw = (x1 - x0) * iw, bh = (y1 - y0) * ih;
+    ctx.drawImage(part.img, bx, by, bw, bh, -dw / 2 + bx * kx, -dh / 2 + by * ky, bw * kx, bh * ky);
+    ctx.restore();
+    return;
+  }
+  // 휘는 방향으로는 촘촘히, 가로질러서는 성기게 나눔
+  const NX = Math.abs(ux) > 0.7 ? 8 : Math.abs(ux) > 0.35 ? 5 : 3;
+  const NY = Math.abs(uy) > 0.7 ? 8 : Math.abs(uy) > 0.35 ? 5 : 3;
+  const sx: number[] = [], sy: number[] = [], tx: number[] = [], ty: number[] = [];
+  for (let j = 0; j <= NY; j++) {
+    for (let i = 0; i <= NX; i++) {
+      const x = (x0 + ((x1 - x0) * i) / NX) * iw;
+      const y = (y0 + ((y1 - y0) * j) / NY) * ih;
+      // 뿌리에서 끝 방향으로 얼마나 떨어졌는지 (0~1) → 끝으로 갈수록 더 많이 회전 = 휨
+      const s = ((x - px) * ux + (y - py) * uy) / L;
+      const w = d.bend === 0 ? 1 : s <= 0 ? 0 : Math.pow(Math.min(1, s), d.bend);
+      const th = angle * w;
+      const c = Math.cos(th), sn = Math.sin(th);
+      const rx = px + (x - px) * c - (y - py) * sn;
+      const ry = py + (x - px) * sn + (y - py) * c;
+      sx.push(x); sy.push(y);
+      tx.push(-dw / 2 + rx * kx); ty.push(-dh / 2 + ry * ky);
+    }
+  }
+  const at = (i: number, j: number) => j * (NX + 1) + i;
+  for (let j = 0; j < NY; j++) {
+    for (let i = 0; i < NX; i++) {
+      const a = at(i, j), b = at(i + 1, j), c = at(i, j + 1), e = at(i + 1, j + 1);
+      drawTri(ctx, part.img, sx[a], sy[a], sx[b], sy[b], sx[c], sy[c], tx[a], ty[a], tx[b], ty[b], tx[c], ty[c]);
+      drawTri(ctx, part.img, sx[b], sy[b], sx[e], sy[e], sx[c], sy[c], tx[b], ty[b], tx[e], ty[e], tx[c], ty[c]);
+    }
+  }
+}
+
+/** 원본 삼각형(s)을 화면 삼각형(d)으로 옮겨 그리기. 이음새가 보이지 않게 조금 크게 자름 */
+function drawTri(
+  ctx: CanvasRenderingContext2D,
+  img: HTMLCanvasElement,
+  sx0: number, sy0: number, sx1: number, sy1: number, sx2: number, sy2: number,
+  dx0: number, dy0: number, dx1: number, dy1: number, dx2: number, dy2: number
+) {
+  const ex1 = sx1 - sx0, ey1 = sy1 - sy0, ex2 = sx2 - sx0, ey2 = sy2 - sy0;
+  const det = ex1 * ey2 - ex2 * ey1;
+  if (Math.abs(det) < 1e-6) return;
+  const du1 = dx1 - dx0, dv1 = dy1 - dy0, du2 = dx2 - dx0, dv2 = dy2 - dy0;
+  const A = (du1 * ey2 - du2 * ey1) / det;
+  const C = (du2 * ex1 - du1 * ex2) / det;
+  const B = (dv1 * ey2 - dv2 * ey1) / det;
+  const D = (dv2 * ex1 - dv1 * ex2) / det;
+  const E = dx0 - A * sx0 - C * sy0;
+  const F = dy0 - B * sx0 - D * sy0;
+  // 무게중심에서 바깥으로 살짝 키운 삼각형으로 자르기
+  const cx = (dx0 + dx1 + dx2) / 3, cy = (dy0 + dy1 + dy2) / 3;
+  const grow = (x: number, y: number): [number, number] => {
+    const vx = x - cx, vy = y - cy;
+    const l = Math.hypot(vx, vy) || 1;
+    return [x + (vx / l) * 0.9, y + (vy / l) * 0.9];
+  };
+  const [g0x, g0y] = grow(dx0, dy0), [g1x, g1y] = grow(dx1, dy1), [g2x, g2y] = grow(dx2, dy2);
+  ctx.save();
+  ctx.beginPath();
+  ctx.moveTo(g0x, g0y);
+  ctx.lineTo(g1x, g1y);
+  ctx.lineTo(g2x, g2y);
+  ctx.closePath();
+  ctx.clip();
+  ctx.transform(A, B, C, D, E, F);
+  const bx0 = Math.max(0, Math.floor(Math.min(sx0, sx1, sx2)) - 2);
+  const by0 = Math.max(0, Math.floor(Math.min(sy0, sy1, sy2)) - 2);
+  const bx1 = Math.min(img.width, Math.ceil(Math.max(sx0, sx1, sx2)) + 2);
+  const by1 = Math.min(img.height, Math.ceil(Math.max(sy0, sy1, sy2)) + 2);
+  if (bx1 > bx0 && by1 > by0) ctx.drawImage(img, bx0, by0, bx1 - bx0, by1 - by0, bx0, by0, bx1 - bx0, by1 - by0);
+  ctx.restore();
+}
+
+/** 0~1 고정 난수 (같은 시각이면 화면·영상이 똑같이 깜빡이도록) */
+const hash01 = (n: number) => {
+  const x = Math.sin(n * 127.1 + 311.7) * 43758.5453;
+  return x - Math.floor(x);
+};
+
+/** 눈 감긴 정도 0(뜸)~1(감음): 3~4초마다 자연스럽게 깜빡, 가끔 두 번. 크게 말하면 살짝 웃는 눈 */
+export function blinkAmount(t: number, seed: number, lvl: number): number {
+  const P = 3.6;
+  const tt = t + seed * 3.1;
+  const n = Math.floor(tt / P);
+  const start = 0.4 + hash01(n + seed) * 2.4;
+  const dur = 0.17;
+  let c = 0;
+  const local = tt - n * P;
+  for (const off of hash01(n * 1.7 + seed) > 0.72 ? [0, 0.3] : [0]) {
+    const u = (local - start - off) / dur;
+    if (u >= 0 && u <= 1) c = Math.max(c, Math.sin(Math.PI * u));
+  }
+  const squint = 0.3 * clamp((lvl - 0.5) / 0.4, 0, 1);
+  return Math.max(c, squint);
+}
+
+/** 눈 그리기: 감는 만큼 세로로 납작해지고, 거의 감기면 그림체와 같은 색의 곡선(감은 눈) */
+function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number) {
+  const c = blinkAmount(t, rig.seed, lvl);
+  const iw = rig.eyeImg.width, ih = rig.eyeImg.height;
+  for (const e of rig.eyes) {
+    const m = 1.9; // 눈 둘레 번짐까지
+    const sx = (e.cx - e.rx * m) * iw, sy = (e.cy - e.ry * m) * ih;
+    const sw = e.rx * 2 * m * iw, sh = e.ry * 2 * m * ih;
+    const dx = -dw / 2 + (e.cx - e.rx * m) * dw;
+    const dcy = -dh / 2 + e.cy * dh;
+    const open = 1 - c;
+    if (open > 0.08) {
+      const h = e.ry * 2 * m * dh * open;
+      ctx.drawImage(rig.eyeImg, sx, sy, sw, sh, dx, dcy - h / 2, e.rx * 2 * m * dw, h);
+    }
+    if (c > 0.55) {
+      ctx.save();
+      ctx.globalAlpha *= clamp((c - 0.55) / 0.3, 0, 1);
+      ctx.strokeStyle = e.color;
+      ctx.lineCap = 'round';
+      ctx.lineWidth = Math.max(1.2, e.ry * dh * 0.42);
+      const r = e.rx * dw * 1.15;
+      ctx.beginPath();
+      ctx.arc(-dw / 2 + e.cx * dw, dcy - r * 0.45, r, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.stroke();
+      ctx.restore();
+    }
   }
 }
 
