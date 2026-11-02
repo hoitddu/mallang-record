@@ -42,7 +42,10 @@ export interface EyeDef {
 export interface RigDef {
   parts: (RigPartDef & { box: [number, number, number, number]; src: string })[];
   eyes: EyeDef[];
-  base: string;
+  /** 부위가 있는 캐릭터: 부위·눈을 떼어 낸 바탕 */
+  base?: string;
+  /** 눈만 깜빡이는 캐릭터: 원본 위에 얹는 "눈 자리 덮개" (용량이 작음) */
+  cover?: string;
   eyesSrc: string;
   /** 깜빡임 박자를 캐릭터마다 다르게 */
   seed: number;
@@ -65,21 +68,28 @@ const PARTS: Record<string, RigPartDef[]> = {
   dolphin: [{ name: 'tail', pivot: [0.3, 0.575], tip: [0.03, 0.57], bend: 1.7, drive: 'fluke' }],
 };
 
-const SEED: Record<string, number> = { rabbit: 0.7, puppy: 2.3, dolphin: 4.1 };
+type Meta = Record<string, { eyes: EyeDef[]; boxes: Record<string, [number, number, number, number]>; cover?: boolean }>;
 
-type Meta = Record<string, { eyes: EyeDef[]; boxes: Record<string, [number, number, number, number]> }>;
+/** 캐릭터마다 깜빡이는 박자가 겹치지 않게 (이름으로 정해지는 고정값) */
+const seedOf = (key: string) => {
+  let h = 0;
+  for (const ch of key) h = (h * 31 + ch.charCodeAt(0)) % 997;
+  return (h / 997) * 7;
+};
 
+/** 부위 움직임(시범 3종) + 눈 깜빡임(기본 그림 전부) */
 export const RIGS: Record<string, RigDef> = Object.fromEntries(
-  Object.entries(PARTS).map(([key, parts]) => {
-    const m = (meta as unknown as Meta)[key];
+  Object.entries(meta as unknown as Meta).map(([key, m]) => {
+    const parts = PARTS[key] ?? [];
     return [
       key,
       {
         parts: parts.map((p) => ({ ...p, box: m.boxes[p.name], src: file(`${key}-${p.name}`) })),
         eyes: m.eyes,
-        base: file(`${key}-base`),
+        base: parts.length ? file(`${key}-base`) : undefined,
+        cover: m.cover ? file(`${key}-cover`) : undefined,
         eyesSrc: file(`${key}-eyes`),
-        seed: SEED[key] ?? 0,
+        seed: seedOf(key),
       } satisfies RigDef,
     ];
   })

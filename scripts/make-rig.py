@@ -41,7 +41,19 @@ def grid(shape):
 
 
 def fill_hole(img, hole, near_px):
-    """구멍(hole) 중 실제 그림 가까이(near_px 안)는 주변 색으로 채우고, 나머지는 투명으로."""
+    """구멍(hole) 중 실제 그림 가까이(near_px 안)는 주변 색으로 채우고, 나머지는 투명으로. 구멍 주변만 잘라서 처리."""
+    if not hole.any():
+        return img.copy()
+    ys, xs = np.nonzero(hole)
+    pad = int(near_px) * 3 + 8
+    y0, y1 = max(0, ys.min() - pad), min(img.shape[0], ys.max() + 1 + pad)
+    x0, x1 = max(0, xs.min() - pad), min(img.shape[1], xs.max() + 1 + pad)
+    out = img.copy()
+    out[y0:y1, x0:x1] = _fill_hole(img[y0:y1, x0:x1], hole[y0:y1, x0:x1], near_px)
+    return out
+
+
+def _fill_hole(img, hole, near_px):
     out = img.copy()
     opaque = (img[..., 3] > 200) & ~hole
     # 부위가 덮고 있던 머리·몸 윤곽을 둥글게 이어서(닫힘 연산) 그 안쪽만 채움 → 삐죽한 자리 없이 매끈
@@ -73,8 +85,8 @@ def split(img, mask):
 def eyes_of(img, centers, r=0.05):
     """눈(진한 점) 찾기 → 눈 레이어, 눈을 지운 마스크, 눈 정보"""
     X, Y = grid(img.shape)
-    lum = img[..., :3].astype(int).sum(-1)
-    dark = (lum < 260) & (img[..., 3] > 200)
+    # 눈은 거의 검은 점: 가장 밝은 채널도 어두워야 함 (보라·갈색 그림자와 구분)
+    dark = (img[..., :3].astype(int).max(-1) < 110) & (img[..., 3] > 200)
     allmask = np.zeros(img.shape[:2], bool)
     info = []
     H, W = img.shape[:2]
@@ -120,8 +132,39 @@ def make(key, parts, eye_centers):
     near_px = max([p[2] for p in parts] + [0])
     base = fill_hole(base, hole, near_px) if near_px > 0 else np.where(hole[..., None], 0, base)
     base = fill_hole(base, eye_mask & ~hole, 40)
-    save(base, f'{key}-base.webp')
-    return {'eyes': eye_info, 'boxes': boxes}
+    if parts:
+        save(base, f'{key}-base.webp')
+        return {'eyes': eye_info, 'boxes': boxes}
+    # 부위가 없으면: 원본 그림 위에 얹을 "눈 자리 덮개"만 (용량 작게)
+    cover_mask = ndimage.binary_dilation(eye_mask, iterations=3)
+    cover = np.zeros_like(img)
+    cover[cover_mask] = base[cover_mask]
+    save(cover, f'{key}-cover.webp')
+    return {'eyes': eye_info, 'boxes': boxes, 'cover': True}
+
+
+EYES_ONLY = {
+    'apple': [(0.3742, 0.5805), (0.6228, 0.5805)],
+    'eggplant': [(0.4052, 0.6344), (0.6226, 0.6345)],
+    'banana': [(0.3811, 0.7166), (0.5404, 0.765)],
+    'mandarin': [(0.3591, 0.5502), (0.6395, 0.5501)],
+    'watermelon': [(0.371, 0.3323), (0.6278, 0.3323)],
+    'strawberry': [(0.3697, 0.5018), (0.6272, 0.502)],
+    'carrot': [(0.3989, 0.4604), (0.5998, 0.4604)],
+    'corn': [(0.3909, 0.4261), (0.6061, 0.4261)],
+    'tomato': [(0.3595, 0.5548), (0.6227, 0.5548)],
+    'grape': [(0.3686, 0.5059), (0.5518, 0.5071)],
+    'acorn': [(0.4541, 0.5902), (0.6735, 0.5392)],
+    'bear': [(0.3821, 0.3152), (0.615, 0.3154)],
+    'cat': [(0.2802, 0.3711), (0.5035, 0.371)],
+    'cow': [(0.2391, 0.4056), (0.3872, 0.4097)],
+    'squirrel': [(0.2047, 0.3472), (0.3847, 0.3568)],
+    'moon': [(0.2449, 0.5612), (0.3992, 0.6414)],
+    'balloon': [(0.4088, 0.3431), (0.5899, 0.3531)],
+    'blanket': [(0.3335, 0.4801), (0.4928, 0.4806)],
+    'stroller': [(0.2988, 0.5054), (0.4631, 0.5007)],
+    'airplane': [(0.2246, 0.4505), (0.3307, 0.4633)],
+}
 
 
 def main():
@@ -162,6 +205,10 @@ def main():
     a = img[..., 3] > 0
     tail = a & (X < 0.30)
     meta['dolphin'] = make('dolphin', [('tail', tail, 0)], [(0.785, 0.465)])
+
+    # ── 눈 깜빡임만 (부위 움직임 없음): 눈 위치는 입 위치를 기준으로 찾은 뒤 눈으로 확인한 값
+    for key, centers in EYES_ONLY.items():
+        meta[key] = make(key, [], centers)
 
     with open(os.path.join(OUT, 'rig.json'), 'w', encoding='utf-8') as f:
         json.dump(meta, f, ensure_ascii=False, indent=2)

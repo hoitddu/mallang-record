@@ -99,7 +99,8 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 - 공용 UI는 `src/components/ui.tsx`(TopBar, Chips, Sheet, Toggle, Slider, Notice 등)를 먼저 재사용하세요.
 - 그림 그리기는 `src/lib/render.ts`의 `drawIllustration` / `renderScene`을 재사용하세요. **화면 미리보기와 저장되는 영상이 같은 그리기 코드를 쓰는 것**이 중요합니다.
 - 움직임 신호는 `src/lib/motion.ts`(`MotionProcessor`, `computeTrack`, `frameAt`)를 쓰세요.
-- **부위별 움직임**(귀·꼬리·눈 깜빡임)은 `src/lib/rigs.ts`(부위 정의)와 `render.ts`의 `partAngle`·`drawRigPart`·`drawEyes`에 있습니다. 조각 그림은 `scripts/make-rig.py`로 만들고(`python3 scripts/make-rig.py`), `src/assets/rig/`의 파일을 손으로 고치지 마세요.
+- **부위별 움직임**(귀·꼬리·눈 깜빡임)은 `src/lib/rigs.ts`(부위 정의)와 `render.ts`의 `partAngle`·`drawRigPart`·`drawEyes`에 있습니다. 조각 그림은 `scripts/make-rig.py`로 만들고(`python3 scripts/make-rig.py`, 약 1~2분), `src/assets/rig/`의 파일을 손으로 고치지 마세요.
+- **새 기본 그림을 넣을 때**는 `make-rig.py`의 `EYES_ONLY`에 눈 위치(0~1 좌표)를 추가하고 스크립트를 다시 돌리면 눈 깜빡임이 붙습니다. 귀·꼬리 같은 부위를 움직이려면 같은 파일의 `main()`과 `src/lib/rigs.ts`의 `PARTS`에 부위를 추가하세요.
 - 화면 이동은 `src/store.tsx`의 `Route`에 이름을 추가하고 `src/App.tsx`에서 연결합니다.
 - 새 화면은 휴대폰 세로 화면(390px 폭 기준)에서 먼저 보기 좋게 만드세요.
 

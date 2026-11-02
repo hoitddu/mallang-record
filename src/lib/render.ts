@@ -481,11 +481,15 @@ export function drawIllustration(
   }
   const rig = prep.rig;
   if (rig) {
-    // 부위별 움직임: 바탕 → 부위(뿌리를 축으로 휨) → 눈(깜빡임). 몸 전체 물결(warp) 대신 부위가 움직임
-    pose.warp = undefined;
-    ctx.drawImage(rig.base, -dw / 2, -dh / 2, dw, dh);
-    for (const part of rig.parts) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
-    drawEyes(ctx, rig, dw, dh, t, lvl);
+    if (rig.base) {
+      // 부위별 움직임: 바탕 → 부위(뿌리를 축으로 휨) → 눈. 몸 전체 물결(warp) 대신 부위가 움직임
+      pose.warp = undefined;
+      ctx.drawImage(rig.base, -dw / 2, -dh / 2, dw, dh);
+      for (const part of rig.parts) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
+    } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
+    else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
+    // 눈 깜빡임 (몸이 물결치면 눈도 같이 따라감)
+    drawEyes(ctx, rig, dw, dh, t, lvl, pose.warp);
   } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
   else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
   // 회전 부품 (기본 유모차 바퀴)
@@ -522,6 +526,15 @@ export function drawIllustration(
     else if (a.type === 'swim' || a.type === 'leap') drawBubbles(ctx, S, bx + pose.dx + dw * 0.35, top + dh * 0.2, m);
     else drawStars(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
   }
+}
+
+type Warp = { axis: 'rows' | 'cols'; amp: number; freq: number; phase: number };
+
+/** 몸이 물결칠 때 그림의 한 점(0~1 좌표)이 얼마나 밀리는지 (drawWarped와 같은 식) */
+function warpOffset(x: number, y: number, warp?: Warp): [number, number] {
+  if (!warp) return [0, 0];
+  if (warp.axis === 'cols') return [0, Math.sin(x * warp.freq * Math.PI * 2 - warp.phase) * warp.amp * (0.3 + 0.7 * (1 - x))];
+  return [Math.sin(y * warp.freq * Math.PI * 2 + warp.phase) * warp.amp * (0.35 + 0.65 * Math.abs(y - 0.5) * 2), 0];
 }
 
 // ───────── 부위별 움직임 (2D 뼈대) ─────────
@@ -694,15 +707,23 @@ export function blinkAmount(t: number, seed: number, lvl: number): number {
 }
 
 /** 눈 그리기: 감는 만큼 세로로 납작해지고, 거의 감기면 그림체와 같은 색의 곡선(감은 눈) */
-function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number) {
+function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number, warp?: Warp) {
   const c = blinkAmount(t, rig.seed, lvl);
   const iw = rig.eyeImg.width, ih = rig.eyeImg.height;
   for (const e of rig.eyes) {
+    const [ox, oy] = warpOffset(e.cx, e.cy, warp);
+    // 원본 그림 위에 그릴 때: 먼저 원래 눈 자리를 얼굴색 덮개로 가림
+    if (rig.cover) {
+      const mc = 2.6;
+      const csx = (e.cx - e.rx * mc) * iw, csy = (e.cy - e.ry * mc) * ih;
+      const csw = e.rx * 2 * mc * iw, csh = e.ry * 2 * mc * ih;
+      ctx.drawImage(rig.cover, csx, csy, csw, csh, -dw / 2 + (e.cx - e.rx * mc) * dw + ox, -dh / 2 + (e.cy - e.ry * mc) * dh + oy, e.rx * 2 * mc * dw, e.ry * 2 * mc * dh);
+    }
     const m = 1.9; // 눈 둘레 번짐까지
     const sx = (e.cx - e.rx * m) * iw, sy = (e.cy - e.ry * m) * ih;
     const sw = e.rx * 2 * m * iw, sh = e.ry * 2 * m * ih;
-    const dx = -dw / 2 + (e.cx - e.rx * m) * dw;
-    const dcy = -dh / 2 + e.cy * dh;
+    const dx = -dw / 2 + (e.cx - e.rx * m) * dw + ox;
+    const dcy = -dh / 2 + e.cy * dh + oy;
     const open = 1 - c;
     if (open > 0.08) {
       const h = e.ry * 2 * m * dh * open;
@@ -716,7 +737,7 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
       ctx.lineWidth = Math.max(1.2, e.ry * dh * 0.42);
       const r = e.rx * dw * 1.15;
       ctx.beginPath();
-      ctx.arc(-dw / 2 + e.cx * dw, dcy - r * 0.45, r, Math.PI * 0.2, Math.PI * 0.8);
+      ctx.arc(-dw / 2 + e.cx * dw + ox, dcy - r * 0.45, r, Math.PI * 0.2, Math.PI * 0.8);
       ctx.stroke();
       ctx.restore();
     }

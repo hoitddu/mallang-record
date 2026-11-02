@@ -23,7 +23,9 @@ export interface Prepared {
 }
 
 export interface PreparedRig {
-  base: HTMLCanvasElement;
+  /** 부위가 있으면 바탕, 없으면 없음(원본 그림 위에 덮개+눈을 얹음) */
+  base?: HTMLCanvasElement;
+  cover?: HTMLCanvasElement;
   parts: { def: RigDef['parts'][number]; img: HTMLCanvasElement }[];
   eyes: EyeDef[];
   eyeImg: HTMLCanvasElement;
@@ -42,8 +44,13 @@ async function prepareRig(key: string): Promise<PreparedRig | undefined> {
   const r = RIGS[key];
   if (!r) return undefined;
   try {
-    const [base, eyeImg, ...parts] = await Promise.all([toCanvas(r.base), toCanvas(r.eyesSrc), ...r.parts.map((p) => toCanvas(p.src))]);
-    return { base, eyeImg, eyes: r.eyes, seed: r.seed, parts: r.parts.map((def, i) => ({ def, img: parts[i] })) };
+    const [base, cover, eyeImg, ...parts] = await Promise.all([
+      r.base ? toCanvas(r.base) : Promise.resolve(undefined),
+      r.cover ? toCanvas(r.cover) : Promise.resolve(undefined),
+      toCanvas(r.eyesSrc),
+      ...r.parts.map((p) => toCanvas(p.src)),
+    ]);
+    return { base, cover, eyeImg, eyes: r.eyes, seed: r.seed, parts: r.parts.map((def, i) => ({ def, img: parts[i] as HTMLCanvasElement })) };
   } catch {
     return undefined;
   }
