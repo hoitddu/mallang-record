@@ -1,6 +1,7 @@
 import { concatBuffers } from './audio';
 import type { MotionFrame, MotionTrack } from './motion';
-import { captionProgress, advanceFrame, frameAt } from './motion';
+import { advanceFrame, frameAt } from './motion';
+import { captionTimes, captionShown } from './captionTiming';
 import type { SceneInfo } from './render';
 
 export interface TimelineItem {
@@ -51,6 +52,31 @@ export function itemFrame(it: TimelineItem, o: number, t: number): MotionFrame {
   return frameAt(it.track, local);
 }
 
+const capCache = new WeakMap<TimelineItem, { text: string; times: number[] | null }>();
+/**
+ * 기록 하나의 자막 글자별 나타나는 시각 (녹음 기준 초). 자르기 범위 안의 목소리만 보고,
+ * 말하는 박자·쉬는 틈에 맞춰 글자·단어를 배치 (captionTiming.ts)
+ */
+export function itemCaptionTimes(it: TimelineItem, text: string): number[] | null {
+  const c = capCache.get(it);
+  if (c && c.text === text) return c.times;
+  const tr = it.track;
+  const end = it.trimEnd;
+  let times: number[] | null = null;
+  if (tr.firstVoice >= 0 && tr.firstVoice <= end && tr.lastVoice >= it.trimStart) {
+    const first = Math.max(tr.firstVoice, it.trimStart);
+    const last = Math.min(tr.lastVoice, end);
+    const ons = (tr.syllables ?? []).filter((s) => s >= it.trimStart - 0.05 && s <= end);
+    times = captionTimes(text, ons.length ? ons : [first], first, last);
+  } else {
+    // 목소리를 못 찾은 기록: 시작하고 조금 뒤부터 천천히
+    const n = Math.max(1, Array.from(text).length);
+    times = Array.from(text, (_, i) => it.trimStart + 0.15 + (i * Math.min(1.2, 0.18 * n)) / n);
+  }
+  capCache.set(it, { text, times });
+  return times;
+}
+
 /** 시각 t에 보여줄 장면과 움직임 */
 export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: MotionFrame } {
   const n = tl.items.length;
@@ -61,11 +87,11 @@ export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: Mot
   const end = it.trimEnd;
   const frame = itemFrame(it, o, t);
 
-  // 자막: 아이가 말하는 동안에 맞춰 한 글자씩 (자르기 범위 안의 목소리 기준)
-  const fv = it.track.firstVoice >= it.trimStart && it.track.firstVoice <= end ? it.track.firstVoice : it.trimStart + 0.15;
-  const lv = Math.min(it.track.lastVoice, end);
-  const captionReveal = captionProgress(it.trimStart + (t - o), fv, lv, Array.from(it.scene.caption?.text ?? '').length);
+  // 자막: 아이가 말하는 박자에 맞춰 글자·단어가 나타남 (자르기 범위 안의 목소리 기준)
+  const captionT = it.trimStart + (t - o);
+  const captionTimes = itemCaptionTimes(it, it.scene.caption?.text ?? '');
+  const captionReveal = captionShown(captionT, captionTimes);
   const winStart = i === 0 ? 0 : o - tl.gap / 2;
   const alpha = i === 0 ? 1 : Math.min(1, (t - winStart) / 0.25);
-  return { scene: { ...it.scene, captionReveal, alpha }, frame };
+  return { scene: { ...it.scene, captionReveal, captionTimes, captionT, alpha }, frame };
 }

@@ -1,8 +1,9 @@
 import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
-import { captionProgress, IDLE_FRAME } from './motion';
+import { IDLE_FRAME } from './motion';
+import { captionShown, charAlpha, timesForLines } from './captionTiming';
 import { COLORS, drawBackground, drawIllustration } from './render';
-import { buildTimeline, itemFrame, type Timeline, type TimelineItem } from './timeline';
+import { buildTimeline, itemCaptionTimes, itemFrame, type Timeline, type TimelineItem } from './timeline';
 
 /**
  * 그림책 잇기: 여러 기록을 그림책처럼 한 장씩 넘기며 보여줍니다.
@@ -68,6 +69,9 @@ type Face = { picture?: number; text?: number } & { spine: 'left' | 'right' | 't
 interface PageState {
   frame: MotionFrame;
   reveal: number;
+  /** 글자마다 나타나는 시각(녹음 기준)과 지금 시각 */
+  times?: number[] | null;
+  lt?: number;
 }
 
 /** 시각 t에 기록 i의 그림 움직임과 자막이 나타난 정도 */
@@ -76,12 +80,10 @@ function pageState(d: BookData, i: number, t: number, idleNow?: number): PageSta
   const it = d.tl.items[i];
   const o = d.tl.offsets[i];
   const frame = itemFrame(it, o, t);
-  const fv = it.track.firstVoice >= it.trimStart && it.track.firstVoice <= it.trimEnd ? it.track.firstVoice : it.trimStart + 0.1;
-  const start = o + (fv - it.trimStart);
-  // 아이가 말하는 동안에 맞춰 한 글자씩 (한 장짜리 영상 자막과 같은 계산)
-  const lv = Math.min(it.track.lastVoice, it.trimEnd);
-  const n = Array.from(d.texts[i] ?? '').length;
-  return { frame, reveal: captionProgress(t - start + fv, fv, lv, n) };
+  // 아이가 말하는 박자에 맞춰 글자·단어가 나타남 (한 장짜리 영상 자막과 같은 계산)
+  const lt = it.trimStart + (t - o);
+  const times = itemCaptionTimes(it, d.texts[i] ?? '');
+  return { frame, reveal: captionShown(lt, times), times, lt };
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, rad: [number, number, number, number]) {
@@ -153,7 +155,7 @@ function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, face: Fac
     const i = face.text;
     const st = pageState(d, i, t, idleNow);
     const area: Rect = both ? { x: w * 0.08, y: h * 0.66, w: w * 0.84, h: h * 0.26 } : { x: w * 0.1, y: h * 0.12, w: w * 0.8, h: h * 0.76 };
-    drawSaying(ctx, d.texts[i] ?? '', area, st.reveal, W);
+    drawSaying(ctx, d.texts[i] ?? '', area, st.reveal, W, st.times, st.lt);
   }
   ctx.restore();
 }
@@ -198,11 +200,14 @@ function layoutSaying(ctx: CanvasRenderingContext2D, text: string, area: Rect, W
   return { lines: two, px: minPx * 0.8 };
 }
 
-function drawSaying(ctx: CanvasRenderingContext2D, text: string, area: Rect, reveal: number, W: number) {
+function drawSaying(ctx: CanvasRenderingContext2D, text: string, area: Rect, reveal: number, W: number, times?: number[] | null, lt?: number) {
   if (!text.trim() || reveal <= 0) return;
   const { lines, px } = layoutSaying(ctx, text, area, W);
   const total = lines.reduce((n, l) => n + Array.from(l).length, 0);
   const shown = reveal * total;
+  // 말하는 박자에 맞춘 글자별 시각 (줄 나눔에 맞춰 옮김). 없으면 차례대로
+  const lineTimes = times && lt !== undefined ? timesForLines(text, times, lines) : null;
+  const alphaAt = (li: number, ci: number, k: number) => (lineTimes ? charAlpha(lt!, lineTimes[li][ci] ?? Infinity) : clamp(shown - (k + ci), 0, 1));
   ctx.font = FONT(px);
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
@@ -215,15 +220,16 @@ function drawSaying(ctx: CanvasRenderingContext2D, text: string, area: Rect, rev
     const x0 = area.x + area.w / 2 - lw / 2;
     const y = y0 + li * lh;
     // 형광펜 밑줄: 나타난 글자만큼 늘어남
-    const nShown = clamp(shown - k, 0, chars.length);
+    let nShown = 0;
+    chars.forEach((_, ci) => alphaAt(li, ci, k) > 0 && (nShown = ci + 1));
     if (nShown > 0) {
-      const hw = ctx.measureText(chars.slice(0, Math.ceil(nShown)).join('')).width;
+      const hw = ctx.measureText(chars.slice(0, nShown).join('')).width;
       ctx.fillStyle = 'rgba(246, 205, 76, 0.45)';
       roundRectPath(ctx, { x: x0 - px * 0.12, y: y - px * 0.34, w: hw + px * 0.24, h: px * 0.38 }, [px * 0.18, px * 0.18, px * 0.18, px * 0.18]);
       ctx.fill();
     }
     chars.forEach((ch, ci) => {
-      const a = clamp(shown - (k + ci), 0, 1);
+      const a = alphaAt(li, ci, k);
       if (a <= 0) return;
       const cx = x0 + ctx.measureText(chars.slice(0, ci).join('')).width;
       const cw = ctx.measureText(ch).width;

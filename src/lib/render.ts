@@ -2,6 +2,7 @@ import type { Prepared, PreparedRig } from './images';
 import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
 import { computePose } from './poses';
+import { charAlpha } from './captionTiming';
 import type { AnimSettings, CaptionSettings, ImgTransform } from './types';
 
 export interface SceneInfo {
@@ -13,6 +14,9 @@ export interface SceneInfo {
   caption?: CaptionSettings;
   /** 자막이 나타난 정도 0~1 */
   captionReveal?: number;
+  /** 자막 글자마다 나타나는 시각(말하는 박자에 맞춤)과 지금 시각 — 있으면 captionReveal 대신 씀 */
+  captionTimes?: number[] | null;
+  captionT?: number;
   months?: string;
   /** 0~1 (여러 단어를 이을 때 장면 전환) */
   alpha?: number;
@@ -105,7 +109,9 @@ function drawBottom(ctx: CanvasRenderingContext2D, W: number, H: number, s: Scen
   let monthsY = capY;
   if (c && c.show && c.text.trim()) {
     // '목소리가 나오면': 아이가 말하는 동안에 맞춰 한 글자씩 톡톡 나타남 / '처음부터': 처음부터 다 보임
-    const prog = c.mode === 'always' ? 1 : clamp(s.captionReveal ?? 0, 0, 1);
+    const always = c.mode === 'always';
+    const perChar = !always && s.captionTimes && s.captionT !== undefined ? s.captionTimes : null;
+    const prog = always ? 1 : perChar ? (perChar.length && s.captionT! >= perChar[0] ? 1 : 0) : clamp(s.captionReveal ?? 0, 0, 1);
     if (prog > 0.001) {
       const base = c.font === 'hand' ? W * 0.135 : W * 0.105;
       let px = Math.round(base * c.size);
@@ -123,9 +129,12 @@ function drawBottom(ctx: CanvasRenderingContext2D, W: number, H: number, s: Scen
       const chars = Array.from(c.text);
       const tw = ctx.measureText(c.text).width;
       const x0 = W / 2 - tw / 2;
-      const shown = prog * chars.length;
+      // 글자마다 나타난 정도: 말하는 박자에 맞춘 시각이 있으면 그걸로, 없으면 차례대로
+      const alphaOf = (i: number) => (perChar ? charAlpha(s.captionT!, perChar[i] ?? Infinity) : always ? 1 : clamp(prog * chars.length - i, 0, 1));
+      let nShown = 0;
+      chars.forEach((_, i) => alphaOf(i) > 0 && (nShown = i + 1));
+      const shown = chars.reduce((acc, _, i) => acc + alphaOf(i), 0);
       // 크레파스 형광펜 같은 밑줄: 나타난 글자만큼 늘어남
-      const nShown = Math.min(chars.length, Math.ceil(shown));
       if (nShown > 0) {
         const hw = ctx.measureText(chars.slice(0, nShown).join('')).width;
         ctx.save();
@@ -137,7 +146,7 @@ function drawBottom(ctx: CanvasRenderingContext2D, W: number, H: number, s: Scen
       }
       ctx.fillStyle = c.color;
       chars.forEach((ch, i) => {
-        const a = clamp(shown - i, 0, 1);
+        const a = alphaOf(i);
         if (a <= 0) return;
         const cx = x0 + ctx.measureText(chars.slice(0, i).join('')).width;
         const cw = ctx.measureText(ch).width;

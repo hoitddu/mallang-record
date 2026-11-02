@@ -5,6 +5,7 @@ import { decodeBlob, extractAudioFromVideo, pickAudioMime, unlockAudio } from '.
 import { clearDraft, defaultCaption, formatDate, getDraft, monthsBetween, putClip, saveDraft, uid } from '../lib/db';
 import { inAppBrowser, inIframe, micErrorMessage, micSupport, type FriendlyError } from '../lib/env';
 import { prepare, snapshotOf, type Prepared } from '../lib/images';
+import { captionTimes } from '../lib/captionTiming';
 import { captionProgress, voiceTrim, analyzeBuffer, computeTrack, estimateFloor, frameAt, IDLE_FRAME, MotionProcessor, type MotionTrack } from '../lib/motion';
 import { renderScene, type SceneInfo } from '../lib/render';
 import type { Clip } from '../lib/types';
@@ -105,6 +106,13 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
       months: months !== undefined ? `${months}개월` : undefined,
     };
   }, [pic, prep, settings]);
+
+  // 녹음한 소리의 박자에 맞춘 자막 글자별 시각
+  const takeCapTimes = useMemo(() => {
+    if (!take || !baseScene) return null;
+    const tr = take.track;
+    return captionTimes(baseScene.caption?.text ?? '', tr.syllables, tr.firstVoice, tr.lastVoice);
+  }, [take, baseScene]);
 
   async function startRec() {
     setErr(null);
@@ -293,6 +301,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
     const l = live.current;
     let frame = { ...IDLE_FRAME, t: now };
     let reveal = 0;
+    let capT: number | undefined;
     if (phase === 'recording' && l) {
       const n = l.analyser.fftSize;
       if (typeof l.analyser.getFloatTimeDomainData === 'function') l.analyser.getFloatTimeDomainData(l.buf as any);
@@ -322,10 +331,12 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
         const t = a.currentTime;
         frame = frameAt(take.track, t);
         reveal = captionProgress(t, take.track.firstVoice, take.track.lastVoice, Array.from(baseScene.caption?.text ?? '').length);
+        capT = t;
       } else reveal = 1;
       frame.t = now;
     }
-    renderScene(ctx, W, H, { ...baseScene, captionReveal: reveal }, frame);
+    // 미리 듣기: 글자가 말하는 박자에 맞춰 나타남 (저장 후 영상과 같은 계산)
+    renderScene(ctx, W, H, { ...baseScene, captionReveal: reveal, ...(capT !== undefined ? { captionTimes: takeCapTimes, captionT: capT } : {}) }, frame);
   };
 
   if (!pic)

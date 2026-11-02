@@ -10,6 +10,8 @@
  *  - 감쇠 스프링 → 말랑한 탄성
  */
 
+import { syllableOnsets } from './captionTiming';
+
 export interface MotionFrame {
   /** 스무딩된 소리 크기 0~1 */
   lvl: number;
@@ -283,6 +285,8 @@ export type MotionTrack = Record<Channel, Float32Array> & {
   firstVoice: number; // 초, 없으면 -1
   /** 마지막으로 목소리가 들린 때(초), 없으면 -1 */
   lastVoice: number;
+  /** 소리 덩어리(대략 음절)가 시작되는 시각들(초) — 자막 글자를 말하는 박자에 맞추는 데 씀 */
+  syllables: number[];
   duration: number;
 };
 
@@ -314,7 +318,7 @@ export function captionProgress(t: number, first: number, last: number, nChars: 
 export function computeTrack(rms: Float32Array, p: MotionParams, floor: number): MotionTrack {
   const n = rms.length;
   const proc = new MotionProcessor(p, false, floor);
-  const t = { firstVoice: -1, lastVoice: -1, duration: n / FPS } as MotionTrack;
+  const t = { firstVoice: -1, lastVoice: -1, syllables: [], duration: n / FPS } as unknown as MotionTrack;
   for (const c of CHANNELS) (t as any)[c] = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const fr = i === 0 ? proc.frame() : proc.step(rms[i], 1 / FPS);
@@ -322,6 +326,7 @@ export function computeTrack(rms: Float32Array, p: MotionParams, floor: number):
     if (proc.speaking) t.lastVoice = i / FPS;
   }
   t.firstVoice = proc.firstVoice;
+  t.syllables = syllableOnsets(rms, FPS, floor, t.firstVoice, t.lastVoice);
   return t;
 }
 
