@@ -1,6 +1,6 @@
 import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
-import { IDLE_FRAME } from './motion';
+import { captionProgress, IDLE_FRAME } from './motion';
 import { COLORS, drawBackground, drawIllustration } from './render';
 import { buildTimeline, itemFrame, type Timeline, type TimelineItem } from './timeline';
 
@@ -78,10 +78,10 @@ function pageState(d: BookData, i: number, t: number, idleNow?: number): PageSta
   const frame = itemFrame(it, o, t);
   const fv = it.track.firstVoice >= it.trimStart && it.track.firstVoice <= it.trimEnd ? it.track.firstVoice : it.trimStart + 0.1;
   const start = o + (fv - it.trimStart);
-  const end = o + (it.trimEnd - it.trimStart) * 0.9;
+  // 아이가 말하는 동안에 맞춰 한 글자씩 (한 장짜리 영상 자막과 같은 계산)
+  const lv = Math.min(it.track.lastVoice, it.trimEnd);
   const n = Array.from(d.texts[i] ?? '').length;
-  const span = Math.max(0.35, Math.min(end - start, 0.18 * n + 0.4));
-  return { frame, reveal: clamp((t - start) / span, 0, 1) };
+  return { frame, reveal: captionProgress(t - start + fv, fv, lv, n) };
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, rad: [number, number, number, number]) {

@@ -25,7 +25,8 @@ export function sceneFromClip(c: Clip, prepared: Prepared | null): SceneInfo {
     anim: c.anim,
     title: c.showTitle && c.title.trim() ? c.title.trim() : undefined,
     date: c.showDate ? formatDate(c.createdAt) : undefined,
-    caption: c.caption,
+    // 자막: 부모가 적은 '아이가 한 말'이 있으면 그 말, 없으면 자막 글자(처음엔 그림 이름)
+    caption: { ...c.caption, text: utteranceOf(c) || c.caption.text },
     months: c.showMonths && c.months != null ? `${c.months}개월` : undefined,
   };
 }

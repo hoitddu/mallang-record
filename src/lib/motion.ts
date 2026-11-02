@@ -281,18 +281,45 @@ const SINCE = new Set<Channel>(['startT', 'quietT', 'aS', 'bS', 'aM', 'bM', 'aL'
 
 export type MotionTrack = Record<Channel, Float32Array> & {
   firstVoice: number; // 초, 없으면 -1
+  /** 마지막으로 목소리가 들린 때(초), 없으면 -1 */
+  lastVoice: number;
   duration: number;
 };
+
+/**
+ * 녹음 앞뒤의 조용한 부분을 빼고 아이 목소리 부분만 (원본은 그대로, 쓸 범위만).
+ * 목소리 시작 조금 전 ~ 끝난 뒤 그림이 제자리로 돌아올 만큼. 목소리가 없으면 null
+ */
+export function voiceTrim(tr: MotionTrack, duration: number): { start: number; end: number } | null {
+  if (tr.firstVoice < 0 || tr.lastVoice < tr.firstVoice) return null;
+  const start = Math.max(0, tr.firstVoice - 0.3);
+  const end = Math.min(duration, tr.lastVoice + 0.6);
+  if (end - start < 0.5) return null;
+  return { start: Math.round(start * 100) / 100, end: Math.round(end * 100) / 100 };
+}
+
+/**
+ * 자막이 나타난 정도 0~1: 목소리가 시작되면 한 글자씩, 아이가 말하는 동안에 맞춰 나타남.
+ * t·first·last는 같은 기준의 초. last를 모르면(녹음 중) 글자 수로 속도를 정함
+ */
+export function captionProgress(t: number, first: number, last: number, nChars: number): number {
+  if (first < 0) return 1;
+  const n = Math.max(1, nChars);
+  const byLen = 0.16 * n + 0.3;
+  const span = last > first ? clamp(last - first, 0.35, Math.max(0.7, 0.3 * n)) : byLen;
+  return clamp((t - first) / span, 0, 1);
+}
 
 /** 녹음 전체를 미리 계산 → 재생·영상 저장 때 같은 결과 (동기화 보장) */
 export function computeTrack(rms: Float32Array, p: MotionParams, floor: number): MotionTrack {
   const n = rms.length;
   const proc = new MotionProcessor(p, false, floor);
-  const t = { firstVoice: -1, duration: n / FPS } as MotionTrack;
+  const t = { firstVoice: -1, lastVoice: -1, duration: n / FPS } as MotionTrack;
   for (const c of CHANNELS) (t as any)[c] = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const fr = i === 0 ? proc.frame() : proc.step(rms[i], 1 / FPS);
     for (const c of CHANNELS) t[c][i] = fr[c];
+    if (proc.speaking) t.lastVoice = i / FPS;
   }
   t.firstVoice = proc.firstVoice;
   return t;

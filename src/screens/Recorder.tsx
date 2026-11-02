@@ -5,7 +5,7 @@ import { decodeBlob, extractAudioFromVideo, pickAudioMime, unlockAudio } from '.
 import { clearDraft, defaultCaption, formatDate, getDraft, monthsBetween, putClip, saveDraft, uid } from '../lib/db';
 import { inAppBrowser, inIframe, micErrorMessage, micSupport, type FriendlyError } from '../lib/env';
 import { prepare, snapshotOf, type Prepared } from '../lib/images';
-import { analyzeBuffer, computeTrack, estimateFloor, frameAt, IDLE_FRAME, MotionProcessor, type MotionTrack } from '../lib/motion';
+import { captionProgress, voiceTrim, analyzeBuffer, computeTrack, estimateFloor, frameAt, IDLE_FRAME, MotionProcessor, type MotionTrack } from '../lib/motion';
 import { renderScene, type SceneInfo } from '../lib/render';
 import type { Clip } from '../lib/types';
 import { useApp } from '../store';
@@ -252,6 +252,8 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
   async function saveClip() {
     if (!take || !pic || !baseScene) return;
     const now = Date.now();
+    // 앞뒤 조용한 부분은 빼고 아이 목소리 부분만 쓰기 (원본 녹음은 그대로라 편집 화면 '길이'에서 되돌릴 수 있음)
+    const cut = voiceTrim(take.track, take.buffer.duration);
     const clip: Clip = {
       id: uid(),
       pictureId: pic.id,
@@ -269,8 +271,8 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
       showDate: true,
       showMonths: monthsBetween(settings.birthDate, now) !== undefined,
       months: monthsBetween(settings.birthDate, now),
-      trimStart: 0,
-      trimEnd: take.buffer.duration,
+      trimStart: cut ? cut.start : 0,
+      trimEnd: cut ? cut.end : take.buffer.duration,
     };
     await putClip(clip);
     await clearDraft();
@@ -305,7 +307,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
       const dt = Math.max(0, Math.min(0.1, now - l.last));
       l.last = now;
       frame = l.proc.step(rms, dt);
-      if (l.proc.firstVoice >= 0) reveal = Math.min(1, (l.proc.t - l.proc.firstVoice) / 0.45);
+      if (l.proc.firstVoice >= 0) reveal = captionProgress(l.proc.t, l.proc.firstVoice, -1, Array.from(baseScene.caption?.text ?? '').length);
       const el = now - l.start;
       if (Math.floor(el * 4) !== Math.floor(elapsed * 4)) setElapsed(el);
       if (el > MAX_SEC) stopRec();
@@ -319,7 +321,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
       if (a && playing) {
         const t = a.currentTime;
         frame = frameAt(take.track, t);
-        reveal = take.track.firstVoice >= 0 ? Math.min(1, Math.max(0, (t - take.track.firstVoice) / 0.45)) : 1;
+        reveal = captionProgress(t, take.track.firstVoice, take.track.lastVoice, Array.from(baseScene.caption?.text ?? '').length);
       } else reveal = 1;
       frame.t = now;
     }
@@ -395,6 +397,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
             <button className="btn-sky w-full max-w-[340px]" onClick={play}>
               {playing ? '멈추기' : '▶ 들으면서 미리보기'}
             </button>
+            <p className="hint max-w-[340px] text-center">저장하면 앞뒤 조용한 부분은 빼고 아이 목소리 부분만 남겨요. 편집 화면 '길이'에서 바꿀 수 있어요.</p>
             <div className="flex w-full max-w-[340px] gap-2">
               <button className="btn-sheet flex-1" onClick={retake}>
                 다시 녹음

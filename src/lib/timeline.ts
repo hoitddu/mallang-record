@@ -1,6 +1,6 @@
 import { concatBuffers } from './audio';
 import type { MotionFrame, MotionTrack } from './motion';
-import { advanceFrame, frameAt } from './motion';
+import { captionProgress, advanceFrame, frameAt } from './motion';
 import type { SceneInfo } from './render';
 
 export interface TimelineItem {
@@ -61,9 +61,10 @@ export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: Mot
   const end = it.trimEnd;
   const frame = itemFrame(it, o, t);
 
+  // 자막: 아이가 말하는 동안에 맞춰 한 글자씩 (자르기 범위 안의 목소리 기준)
   const fv = it.track.firstVoice >= it.trimStart && it.track.firstVoice <= end ? it.track.firstVoice : it.trimStart + 0.15;
-  const revealAt = o + (fv - it.trimStart);
-  const captionReveal = Math.max(0, Math.min(1, (t - revealAt) / 0.45));
+  const lv = Math.min(it.track.lastVoice, end);
+  const captionReveal = captionProgress(it.trimStart + (t - o), fv, lv, Array.from(it.scene.caption?.text ?? '').length);
   const winStart = i === 0 ? 0 : o - tl.gap / 2;
   const alpha = i === 0 ? 1 : Math.min(1, (t - winStart) / 0.25);
   return { scene: { ...it.scene, captionReveal, alpha }, frame };

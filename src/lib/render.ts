@@ -104,25 +104,52 @@ function drawBottom(ctx: CanvasRenderingContext2D, W: number, H: number, s: Scen
   const capY = H * (0.765 + (c ? c.position : 0.5) * 0.08);
   let monthsY = capY;
   if (c && c.show && c.text.trim()) {
-    const reveal = c.mode === 'always' ? 1 : ease(s.captionReveal ?? 0);
-    if (reveal > 0.001) {
+    // '목소리가 나오면': 아이가 말하는 동안에 맞춰 한 글자씩 톡톡 나타남 / '처음부터': 처음부터 다 보임
+    const prog = c.mode === 'always' ? 1 : clamp(s.captionReveal ?? 0, 0, 1);
+    if (prog > 0.001) {
       const base = c.font === 'hand' ? W * 0.135 : W * 0.105;
-      const px = Math.round(base * c.size);
+      let px = Math.round(base * c.size);
+      const fontOf = (n: number) => (c.font === 'hand' ? FONTS.hand(n) : FONTS.gothic(n));
       ctx.save();
-      ctx.globalAlpha *= reveal;
-      ctx.translate(W / 2, capY + (1 - reveal) * H * 0.025);
-      const sc = 0.88 + 0.12 * reveal;
-      ctx.scale(sc, sc);
-      ctx.font = c.font === 'hand' ? FONTS.hand(px) : FONTS.gothic(px);
-      ctx.textAlign = 'center';
+      ctx.font = fontOf(px);
+      // 화면 폭에 맞게 글씨 크기 줄이기 (글자가 찌그러지지 않게)
+      const full = ctx.measureText(c.text).width;
+      if (full > W * 0.86) {
+        px = Math.max(8, Math.floor((px * W * 0.86) / full));
+        ctx.font = fontOf(px);
+      }
+      ctx.textAlign = 'left';
       ctx.textBaseline = 'alphabetic';
-      const tw = Math.min(ctx.measureText(c.text).width, W * 0.86);
-      // 크레파스 형광펜 같은 밑줄
-      ctx.fillStyle = 'rgba(246, 205, 76, 0.42)';
-      roundRect(ctx, -tw / 2 - px * 0.18, -px * 0.32, tw + px * 0.36, px * 0.36, px * 0.18);
-      ctx.fill();
+      const chars = Array.from(c.text);
+      const tw = ctx.measureText(c.text).width;
+      const x0 = W / 2 - tw / 2;
+      const shown = prog * chars.length;
+      // 크레파스 형광펜 같은 밑줄: 나타난 글자만큼 늘어남
+      const nShown = Math.min(chars.length, Math.ceil(shown));
+      if (nShown > 0) {
+        const hw = ctx.measureText(chars.slice(0, nShown).join('')).width;
+        ctx.save();
+        ctx.globalAlpha *= Math.min(1, shown * 1.5);
+        ctx.fillStyle = 'rgba(246, 205, 76, 0.42)';
+        roundRect(ctx, x0 - px * 0.18, capY - px * 0.32, hw + px * 0.36, px * 0.36, px * 0.18);
+        ctx.fill();
+        ctx.restore();
+      }
       ctx.fillStyle = c.color;
-      fitText(ctx, c.text, 0, 0, W * 0.86);
+      chars.forEach((ch, i) => {
+        const a = clamp(shown - i, 0, 1);
+        if (a <= 0) return;
+        const cx = x0 + ctx.measureText(chars.slice(0, i).join('')).width;
+        const cw = ctx.measureText(ch).width;
+        // 막 나타난 글자는 톡 튀어나오듯 커졌다 제자리
+        const pop = a < 1 ? 0.55 + 0.45 * Math.sin((a * Math.PI) / 2) + 0.12 * Math.sin(a * Math.PI) : 1;
+        ctx.save();
+        ctx.globalAlpha *= Math.min(1, a * 1.6);
+        ctx.translate(cx + cw / 2, capY - px * 0.35);
+        ctx.scale(pop, pop);
+        ctx.fillText(ch, -cw / 2, px * 0.35);
+        ctx.restore();
+      });
       ctx.restore();
     }
     monthsY = capY + base2(W, c) * 0.62 + W * 0.03;

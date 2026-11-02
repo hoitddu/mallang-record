@@ -6,7 +6,7 @@ import { Chips, ConfirmButton, Notice, Sheet, Slider, Toggle, TopBar } from '../
 import { clipItem, loadClipAudio, sceneFromClip, utteranceOf, type ClipAudio } from '../lib/clipScene';
 import { deleteClip, formatDate, getClip, putClip } from '../lib/db';
 import { prepareSnapshot, snapshotOf, type Prepared } from '../lib/images';
-import { computeTrack } from '../lib/motion';
+import { voiceTrim, computeTrack } from '../lib/motion';
 import { buildTimeline } from '../lib/timeline';
 import type { Clip } from '../lib/types';
 import { useApp } from '../store';
@@ -69,6 +69,9 @@ export function ClipEditor({ clipId }: { clipId: string }) {
     [audio, clip?.anim.sensitivity, clip?.anim.speed]
   );
 
+  // 앞뒤 조용한 부분을 뺀 아이 목소리 범위
+  const voiceCut = useMemo(() => (track && audio ? voiceTrim(track, audio.buffer.duration) : null), [track, audio]);
+
   const timeline = useMemo(() => {
     if (!clip || !audio || !track) return null;
     const end = Math.min(clip.trimEnd || audio.buffer.duration, audio.buffer.duration);
@@ -106,7 +109,7 @@ export function ClipEditor({ clipId }: { clipId: string }) {
           placeholder={`예: 물꼬기쩜뿌 (그림: ${clip.pictureSnapshot.name})`}
           onChange={(e) => update({ utterance: e.target.value })}
         />
-        <p className="hint mt-1">들린 그대로 적어 주세요. 여러 단어 잇기 그림책에 이 말이 나와요. 그림 이름("{clip.pictureSnapshot.name}")과는 따로 저장돼요.</p>
+        <p className="hint mt-1">들린 그대로 적어 주세요. 영상 자막과 그림책에 이 말이 아이가 말하는 타이밍에 맞춰 나와요. 그림 이름("{clip.pictureSnapshot.name}")과는 따로 저장돼요.</p>
       </div>
       <Player timeline={timeline} url={url} audioStart={clip.trimStart} audioEnd={Math.min(clip.trimEnd || dur, dur)} maxHeight="52dvh" />
 
@@ -137,20 +140,16 @@ export function ClipEditor({ clipId }: { clipId: string }) {
         {tab === 'caption' && (
           <div className="space-y-4">
             <Toggle id="cap-show" label="자막 보이기" checked={cap.show} onChange={(v) => update({ caption: { ...cap, show: v } })} />
-            <div>
-              <label htmlFor="cap-text" className="label mb-1 block">
-                자막 글자
-              </label>
-              <input id="cap-text" className="field" value={cap.text} maxLength={24} onChange={(e) => update({ caption: { ...cap, text: e.target.value } })} />
-              <p className="hint mt-1">아이 발음 그대로("사꽈!")나 바른 말로 마음대로 적어 주세요.</p>
-            </div>
+            <p className="hint">
+              자막에는 맨 위 <b>아이가 한 말</b>이 나와요{utteranceOf(clip) ? '' : ` (비어 있으면 "${cap.text}")`}.
+            </p>
             <div>
               <p className="label mb-2">나타나는 때</p>
               <Chips
                 value={cap.mode}
                 onChange={(v) => update({ caption: { ...cap, mode: v } })}
                 options={[
-                  { v: 'voice', label: '목소리가 나오면 짠' },
+                  { v: 'voice', label: '말하는 대로 한 글자씩' },
                   { v: 'always', label: '처음부터' },
                 ]}
               />
@@ -214,6 +213,19 @@ export function ClipEditor({ clipId }: { clipId: string }) {
         {tab === 'trim' && audio && (
           <div className="space-y-3">
             <Wave rms={audio.rms} dur={dur} start={clip.trimStart} end={Math.min(clip.trimEnd || dur, dur)} />
+            <div className="flex gap-2">
+              <button
+                className="btn-sheet flex-1 !py-2.5 text-[15px]"
+                disabled={!voiceCut}
+                onClick={() => voiceCut && update({ trimStart: voiceCut.start, trimEnd: voiceCut.end })}
+              >
+                목소리만 남기기
+              </button>
+              <button className="btn-sheet flex-1 !py-2.5 text-[15px]" onClick={() => update({ trimStart: 0, trimEnd: dur })}>
+                전체 쓰기
+              </button>
+            </div>
+            {!voiceCut && <p className="hint">목소리를 찾지 못했어요. '움직임'에서 목소리 반응 민감도를 높여 보세요.</p>}
             <Slider
               id="trim-s"
               label="시작"
