@@ -643,7 +643,9 @@ function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number
     const pw = vis * EYE_CROP, ph = (pw * EYE_H) / EYE_W;
     // 눈이 하나뿐인 옆모습 캐릭터는 보이는 쪽 눈
     const img = eyes.length === 1 ? fp.eyes[(prep.facing ?? 1) > 0 ? 1 : 0] : fp.eyes[i];
-    ctx.drawImage(img, -dw / 2 + e.cx * dw + ox - pw / 2, -dh / 2 + e.cy * dh + oy - ph / 2, pw, ph);
+    // 눈과 입 사이가 너무 좁지 않게 눈은 살짝 위로
+    const lift = gap * 0.05;
+    ctx.drawImage(img, -dw / 2 + e.cx * dw + ox - pw / 2, -dh / 2 + e.cy * dh + oy - ph / 2 - lift, pw, ph);
   });
   const mt = prep.mouth;
   if (mt) {
@@ -653,6 +655,8 @@ function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number
     my += oy;
     const vis = gap ? Math.max(gap * 0.72, mt.w * dw * 1.2) : mt.w * dw * 1.6;
     const pw = vis * MOUTH_CROP, ph = (pw * MOUTH_H) / MOUTH_W;
+    // 눈과 입 사이를 조금 띄우려고 입은 살짝 아래로 (두 눈 사이 거리 기준)
+    my += gap ? gap * 0.13 : mt.w * dw * 0.15;
     ctx.drawImage(fp.mouth, mx - pw / 2, my - ph * 0.45, pw, ph);
   }
   ctx.restore();

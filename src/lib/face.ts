@@ -193,7 +193,7 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
     const a = pts[E.outer], b = pts[E.inner];
     const w = Math.hypot(b.x - a.x, b.y - a.y);
     const cen = centroid(E.ring.map((i) => pts[i]));
-    cutOut(c, src, cen, roll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.55, 2.4], E.lid.map((i) => pts[i]), false, [1.25, 1.6]);
+    cutOut(c, src, cen, roll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.55, 1.75, 2.3], E.lid.map((i) => pts[i]), false, [1.25, 1.5, 1.6]);
     stylize(c, L, { ink, dark: ink, lip: null, skin: o.skinEye ?? null, mouth: false });
   };
   // 거울 모드면 사진 오른쪽 눈(B)이 화면 왼쪽으로
@@ -204,7 +204,7 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
   const ml = pts[MOUTH_L], mr = pts[MOUTH_R];
   const mw = Math.hypot(mr.x - ml.x, mr.y - ml.y);
   const lips = LIPS_OUTER.map((i) => pts[i]);
-  cutOut(P.mouth, src, centroid(lips), roll, (mw * MOUTH_CROP) / MOUTH_W, o.mirror, lips, [1.32, 1.6], lips, true, [1.14, 1.25]);
+  cutOut(P.mouth, src, centroid(lips), roll, (mw * MOUTH_CROP) / MOUTH_W, o.mirror, lips, [1.32, 1.6, 1.6], lips, true, [1.14, 1.25, 1.25]);
   const lip = o.lip ?? '#C9606E';
   stylize(P.mouth, L, { ink, dark: mixHex(lip, ink, 0.45), lip, skin: o.skinMouth ?? null, mouth: true });
   return P;
@@ -218,9 +218,9 @@ function centroid(ps: Pt[]): Pt {
 
 /**
  * c에 src의 cen 주변을 기울기 roll만큼 바로 세워 오려 담고, ring 다각형 바깥은 부드럽게 지움.
- * scale: 조각 1픽셀 = 원본 몇 픽셀. grow: 다각형을 [가로, 세로]로 키우는 비율. line: 그림 선을 그릴 점들
+ * scale: 조각 1픽셀 = 원본 몇 픽셀. grow: 다각형을 [가로, 위쪽, 아래쪽]으로 키우는 비율. line: 그림 선을 그릴 점들
  */
-function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number], line: Pt[], closed = false, coreGrow: [number, number] = [1, 1]) {
+function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number, number], line: Pt[], closed = false, coreGrow: [number, number, number] = [1, 1, 1]) {
   const W = c.width, H = c.height;
   const g = c.getContext('2d', { willReadFrequently: true })!;
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -252,7 +252,9 @@ function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: num
   // 부드러운 마스크: 작은 캔버스에 다각형을 그린 뒤 크게 늘이면 가장자리가 자연스럽게 흐려짐
   const poly = ring.map(toPatch);
   const pc = centroid(poly);
-  const gp = poly.map((p) => ({ x: pc.x + (p.x - pc.x) * grow[0], y: pc.y + (p.y - pc.y) * grow[1] }));
+  // [가로, 위쪽, 아래쪽] 비율로 키움 (눈은 위쪽을 덜 키워 눈썹이 들어오지 않게)
+  const growPt = (p: Pt, g: [number, number, number]) => ({ x: pc.x + (p.x - pc.x) * g[0], y: pc.y + (p.y - pc.y) * (p.y < pc.y ? g[1] : g[2]) });
+  const gp = poly.map((p) => growPt(p, grow));
   const ms = maskSmall.getContext('2d')!;
   const kx = maskSmall.width / W, ky = maskSmall.height / H;
   ms.setTransform(1, 0, 0, 1, 0, 0);
@@ -274,7 +276,7 @@ function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: num
   // 안쪽(눈·입술 자체) 표시: 키우지 않은 다각형 → 그 밖은 피부로 보고 캐릭터 색으로 바꿈
   ms.clearRect(0, 0, maskSmall.width, maskSmall.height);
   ms.beginPath();
-  const cp = poly.map((p) => ({ x: pc.x + (p.x - pc.x) * coreGrow[0], y: pc.y + (p.y - pc.y) * coreGrow[1] }));
+  const cp = poly.map((p) => growPt(p, coreGrow));
   cp.forEach((p, i) => (i ? ms.lineTo(p.x * kx, p.y * ky) : ms.moveTo(p.x * kx, p.y * ky)));
   ms.closePath();
   ms.fill();
