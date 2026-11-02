@@ -3,7 +3,7 @@ import { AnimControls } from '../components/AnimControls';
 import { ExportSheet } from '../components/ExportSheet';
 import { Player } from '../components/Player';
 import { Chips, ConfirmButton, Notice, Sheet, Slider, Toggle, TopBar } from '../components/ui';
-import { clipItem, loadClipAudio, sceneFromClip, type ClipAudio } from '../lib/clipScene';
+import { clipItem, loadClipAudio, sceneFromClip, utteranceOf, type ClipAudio } from '../lib/clipScene';
 import { deleteClip, formatDate, getClip, putClip } from '../lib/db';
 import { prepareSnapshot, snapshotOf, type Prepared } from '../lib/images';
 import { computeTrack } from '../lib/motion';
@@ -94,6 +94,20 @@ export function ClipEditor({ clipId }: { clipId: string }) {
         onBack={back}
         right={<span className="text-[13px] text-soft">{saved ? '저장됨' : '저장 중…'}</span>}
       />
+      <div className="card mb-4 p-3">
+        <label htmlFor="utterance" className="label mb-1 block">
+          아이가 한 말
+        </label>
+        <input
+          id="utterance"
+          className="field font-display !text-[20px]"
+          value={clip.utterance ?? utteranceOf(clip)}
+          maxLength={40}
+          placeholder={`예: 물꼬기쩜뿌 (그림: ${clip.pictureSnapshot.name})`}
+          onChange={(e) => update({ utterance: e.target.value })}
+        />
+        <p className="hint mt-1">들린 그대로 적어 주세요. 여러 단어 잇기 그림책에 이 말이 나와요. 그림 이름("{clip.pictureSnapshot.name}")과는 따로 저장돼요.</p>
+      </div>
       <Player timeline={timeline} url={url} audioStart={clip.trimStart} audioEnd={Math.min(clip.trimEnd || dur, dur)} maxHeight="52dvh" />
 
       <div className="mt-4 flex gap-2">

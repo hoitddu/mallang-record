@@ -6,6 +6,18 @@ import type { SceneInfo } from './render';
 import type { TimelineItem } from './timeline';
 import type { Clip } from './types';
 
+/**
+ * 아이가 한 말: 입력한 값 → (옛 기록) 그림 이름과 다르게 바꿔 둔 자막 글자 → 없으면 빈 글자.
+ * 저장된 기록은 고치지 않고 보여줄 때만 계산해요.
+ */
+export function utteranceOf(c: Clip): string {
+  const u = c.utterance?.trim();
+  if (u) return u;
+  const cap = c.caption?.text?.trim();
+  if (cap && cap !== c.word.trim() && cap !== c.pictureSnapshot.name.trim()) return cap;
+  return '';
+}
+
 export function sceneFromClip(c: Clip, prepared: Prepared | null): SceneInfo {
   return {
     prepared,

@@ -78,6 +78,7 @@ export async function exportVideo(o: ExportOptions): Promise<ExportResult> {
   } catch {}
 
   const draw = (t: number) => {
+    if (timeline.draw) return timeline.draw(g, W, H, t);
     const { scene, frame } = sceneAt(timeline, t);
     renderScene(g, W, H, scene, frame);
   };

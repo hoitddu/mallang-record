@@ -88,11 +88,18 @@ export interface Clip {
   months?: number;
   trimStart: number;
   trimEnd: number;
+  /**
+   * 아이가 실제로 한 말 (예: 그림은 '돌고래', 아이 말은 '물꼬기쩜뿌').
+   * 그림책 잇기 영상의 자막으로 쓰여요. 옛 기록에는 없을 수 있어요(→ utteranceOf 참고).
+   */
+  utterance?: string;
 }
 
 export interface Settings {
   childName: string;
   birthDate?: string;
+  /** 여러 단어 잇기 그림책의 책 모양 (마지막에 고른 것) */
+  bookLayout?: 'page' | 'spread' | 'vertical';
 }
 
 export interface Draft {

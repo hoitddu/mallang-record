@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Thumb } from '../components/Thumb';
 import { TopBar } from '../components/ui';
+import { utteranceOf } from '../lib/clipScene';
 import { formatDate, listClips } from '../lib/db';
 import type { Clip } from '../lib/types';
 import { useApp } from '../store';
@@ -76,8 +77,9 @@ export function Archive() {
                 >
                   <Thumb src={c.pictureSnapshot} className="bg-paper" />
                   <div className="px-3 pb-3 pt-1">
-                    <p className="truncate font-display text-[19px]">{c.caption.text || c.word}</p>
-                    <p className="text-[12px] text-soft">
+                    <p className="truncate font-display text-[19px]">{utteranceOf(c) || c.caption.text || c.word}</p>
+                    <p className="truncate text-[12px] text-soft">
+                      {utteranceOf(c) && `${c.pictureSnapshot.name} · `}
                       {formatDate(c.createdAt)}
                       {c.months != null && ` · ${c.months}개월`}
                     </p>
@@ -110,7 +112,7 @@ export function Archive() {
       {selecting && sel.length > 0 && (
         <div className="fixed inset-x-0 bottom-0 z-30 flex justify-center bg-paper/95 py-3 backdrop-blur" style={{ paddingBottom: 'max(12px, env(safe-area-inset-bottom, 0px))', paddingLeft: 'max(16px, env(safe-area-inset-left, 0px))', paddingRight: 'max(16px, env(safe-area-inset-right, 0px))' }}>
           <button className="btn-main w-full max-w-[520px]" onClick={() => go({ name: 'compose', clipIds: sel })}>
-            {sel.length}개를 한 영상으로 잇기
+            {sel.length}개를 그림책으로 잇기
           </button>
         </div>
       )}
