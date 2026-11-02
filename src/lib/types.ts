@@ -1,6 +1,10 @@
 export type Category = 'fruit' | 'animal' | 'thing' | 'custom';
 
-export type AnimType = 'squish' | 'hop' | 'float' | 'fly' | 'swim' | 'cozy' | 'roll';
+/** 기본 움직임 7종 + 캐릭터 움직임 (그림의 성격에 맞춘 움직임) */
+export type AnimType =
+  | 'squish' | 'hop' | 'float' | 'fly' | 'swim' | 'cozy' | 'roll'
+  | 'bounce' | 'jelly' | 'heavy' | 'sway' | 'wobbly' | 'sprout' | 'popcorn' | 'heartbeat' | 'tumble'
+  | 'bunny' | 'waddle' | 'stretch' | 'wag' | 'nod' | 'scurry' | 'leap' | 'rock';
 
 export interface AnimSettings {
   type: AnimType;
@@ -39,6 +43,8 @@ export interface Picture {
   anim: AnimSettings;
   transform: ImgTransform;
   hidden?: boolean;
+  /** 기본 움직임 기준표 버전 (캐릭터 움직임 도입 시 2) */
+  animRev?: number;
   createdAt: number;
   updatedAt: number;
 }
