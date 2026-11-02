@@ -631,21 +631,28 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
  * 아이의 실제 눈·입 조각을 캐릭터 얼굴 자리에 붙이기.
  * 크기는 캐릭터 두 눈 사이 거리에 맞춰 사람 얼굴 비율로(눈 너비 ≈ 눈 사이의 절반, 입 ≈ 눈 사이의 0.85배)
  */
+/** 아이 눈 붙이는 모양: 세로로 늘이는 정도·가로 줄이는 정도·눈 사이 넓히는 정도 */
+const EYE_ROUND_Y = 1.4, EYE_ROUND_X = 0.92, EYE_SPREAD = 1.3;
+
 function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number, dh: number, fp: FacePatches, alpha: number, warp?: Warp) {
   const eyes = prep.rig ? [...prep.rig.eyes].sort((p, q) => p.cx - q.cx) : [];
   const gap = eyes.length >= 2 ? Math.abs(eyes[eyes.length - 1].cx - eyes[0].cx) * dw : 0;
   ctx.save();
   ctx.globalAlpha *= alpha;
   ctx.imageSmoothingQuality = 'high';
+  // 두 눈의 가운데 (눈 사이를 넓힐 때 기준)
+  const midX = eyes.length >= 2 ? (eyes[0].cx + eyes[eyes.length - 1].cx) / 2 : 0.5;
   eyes.slice(0, 2).forEach((e, i) => {
     const [ox, oy] = warpOffset(e.cx, e.cy, warp);
     const vis = gap ? gap * 0.5 : e.rx * 2 * dw * 3.4;
-    const pw = vis * EYE_CROP, ph = (pw * EYE_H) / EYE_W;
+    // 동그랗고 귀엽게: 세로로 늘이고 가로는 살짝 줄임
+    const pw = vis * EYE_CROP * EYE_ROUND_X, ph = ((vis * EYE_CROP * EYE_H) / EYE_W) * EYE_ROUND_Y;
     // 눈이 하나뿐인 옆모습 캐릭터는 보이는 쪽 눈
     const img = eyes.length === 1 ? fp.eyes[(prep.facing ?? 1) > 0 ? 1 : 0] : fp.eyes[i];
-    // 눈과 입 사이가 너무 좁지 않게 눈은 살짝 위로
+    // 눈과 입 사이가 너무 좁지 않게 눈은 살짝 위로, 눈 사이는 넓게(순한 인상)
     const lift = gap * 0.08;
-    ctx.drawImage(img, -dw / 2 + e.cx * dw + ox - pw / 2, -dh / 2 + e.cy * dh + oy - ph / 2 - lift, pw, ph);
+    const ex = eyes.length >= 2 ? midX + (e.cx - midX) * EYE_SPREAD : e.cx;
+    ctx.drawImage(img, -dw / 2 + ex * dw + ox - pw / 2, -dh / 2 + e.cy * dh + oy - ph / 2 - lift, pw, ph);
   });
   const mt = prep.mouth;
   if (mt) {

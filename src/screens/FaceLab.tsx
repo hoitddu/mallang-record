@@ -35,6 +35,9 @@ export function FaceLab() {
   const fileRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const photoRef = useRef<HTMLCanvasElement | null>(null);
+  const photoPts = useRef<{ x: number; y: number }[] | null>(null);
+  const prepRef = useRef<Prepared | null>(null);
+  prepRef.current = prep;
   // 프레임마다 바뀌는 값 (화면 다시 그리기 없이)
   const st = useRef({ patches: {} as Record<string, FacePatches>, presence: 0, target: 0, lastTs: -1, found: false, busy: false });
   const smoother = useMemo(() => new LandmarkSmoother(), []);
@@ -42,7 +45,10 @@ export function FaceLab() {
 
   useEffect(() => {
     let alive = true;
-    prepare({ id: 'b-' + key, builtinKey: key }).then((p) => alive && setPrep(p));
+    prepare({ id: 'b-' + key, builtinKey: key }).then((p) => {
+      prepKeys.set(p, key);
+      if (alive) setPrep(p);
+    });
     return () => {
       alive = false;
     };
@@ -57,9 +63,11 @@ export function FaceLab() {
   }
 
   /** 이 그림의 눈 둘레·입 자리 얼굴 색 (사람 피부색 대신) */
+  // 지금 고른 그림 기준 (그림을 바꾼 직후에도 이전 그림 색이 남지 않게 ref로)
   const skins = () => {
-    if (!prep) return {};
-    const c = artSkinColors(prep);
+    const pr = prepRef.current;
+    if (!pr || prepKeys.get(pr) !== key) return {};
+    const c = artSkinColors(pr);
     return { skinEye: c.eye, skinMouth: c.mouth };
   };
 
@@ -118,7 +126,8 @@ export function FaceLab() {
       }
       smoother.reset();
       const pts = lms.map((p) => ({ x: p.x * c.width, y: p.y * c.height }));
-      for (const L of LEVELS) st.current.patches[L.v] = cloneP(extractPatches(c, pts, { level: L.level, mirror: false, lip: def.mouth.color, ...skins() }, 'p' + L.v));
+      photoPts.current = pts;
+      photoPatches();
       st.current.found = true;
       st.current.target = 1;
       setStatus('사진의 눈·입을 붙였어요');
@@ -126,6 +135,17 @@ export function FaceLab() {
       setErr('사진을 열지 못했어요.');
     }
   }
+
+  /** 사진 모드: 저장해 둔 얼굴 점으로 지금 그림에 맞춰 눈·입 다시 오리기 */
+  function photoPatches() {
+    const c = photoRef.current, pts = photoPts.current;
+    if (!c || !pts) return;
+    for (const L of LEVELS) st.current.patches[L.v] = cloneP(extractPatches(c, pts, { level: L.level, mirror: false, ...skins() }, 'p' + L.v));
+  }
+  // 그림을 바꾸면 사진의 눈·입도 새 그림 색으로
+  useEffect(() => {
+    if (source === 'photo' && prep) photoPatches();
+  }, [prep, source]);
 
   // 카메라: 프레임마다 얼굴 찾기 → 눈·입 오리기 (세 단계 모두)
   function track(now: number) {
@@ -142,7 +162,7 @@ export function FaceLab() {
             const lms = res.faceLandmarks[0];
             if (lms) {
               const pts = smoother.apply(lms, v.videoWidth, v.videoHeight, ts / 1000);
-              for (const L of LEVELS) s.patches[L.v] = extractPatches(v, pts, { level: L.level, mirror: true, lip: def.mouth.color, ...skins() }, 'c' + L.v);
+              for (const L of LEVELS) s.patches[L.v] = extractPatches(v, pts, { level: L.level, mirror: true, ...skins() }, 'c' + L.v);
               s.target = 1;
               if (!s.found) setStatus('찾았어요! 말해 보세요');
               s.found = true;
@@ -222,6 +242,9 @@ export function FaceLab() {
     </div>
   );
 }
+
+/** 준비된 그림이 어느 그림 것인지 */
+const prepKeys = new WeakMap<Prepared, string>();
 
 /** 사진 모드: 조각을 따로 복사해 두기 (카메라 모드가 같은 캔버스를 다시 써도 남도록) */
 function cloneP(p: FacePatches): FacePatches {

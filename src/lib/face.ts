@@ -193,7 +193,10 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
     const a = pts[E.outer], b = pts[E.inner];
     const w = Math.hypot(b.x - a.x, b.y - a.y);
     const cen = centroid(E.ring.map((i) => pts[i]));
-    cutOut(c, src, cen, roll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.55, 1.75, 2.3], E.lid.map((i) => pts[i]), false, [1.25, 1.5, 1.6]);
+    // 눈마다 양 끝을 수평으로 (눈꼬리가 올라간 '째진 눈'처럼 보이지 않게)
+    const [l, r] = a.x < b.x ? [a, b] : [b, a];
+    const eyeRoll = Math.atan2(r.y - l.y, r.x - l.x);
+    cutOut(c, src, cen, eyeRoll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.5, 1.8, 2.3], E.lid.map((i) => pts[i]), false, [1.1, 1.3, 1.25], true);
     stylize(c, L, { ink, dark: ink, lip: null, skin: o.skinEye ?? null, mouth: false });
   };
   // 거울 모드면 사진 오른쪽 눈(B)이 화면 왼쪽으로
@@ -220,7 +223,7 @@ function centroid(ps: Pt[]): Pt {
  * c에 src의 cen 주변을 기울기 roll만큼 바로 세워 오려 담고, ring 다각형 바깥은 부드럽게 지움.
  * scale: 조각 1픽셀 = 원본 몇 픽셀. grow: 다각형을 [가로, 위쪽, 아래쪽]으로 키우는 비율. line: 그림 선을 그릴 점들
  */
-function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number, number], line: Pt[], closed = false, coreGrow: [number, number, number] = [1, 1, 1]) {
+function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: number, scale: number, mirror: boolean, ring: Pt[], grow: [number, number, number], line: Pt[], closed = false, coreGrow: [number, number, number] = [1, 1, 1], round = false) {
   const W = c.width, H = c.height;
   const g = c.getContext('2d', { willReadFrequently: true })!;
   g.setTransform(1, 0, 0, 1, 0, 0);
@@ -261,7 +264,14 @@ function cutOut(c: HTMLCanvasElement, src: CanvasImageSource, cen: Pt, roll: num
   ms.clearRect(0, 0, maskSmall.width, maskSmall.height);
   ms.fillStyle = '#000';
   ms.beginPath();
-  gp.forEach((p, i) => (i ? ms.lineTo(p.x * kx, p.y * ky) : ms.moveTo(p.x * kx, p.y * ky)));
+  if (round) {
+    // 눈: 동그란(타원) 모양으로 오려 귀엽게
+    let x0 = Infinity, x1 = -Infinity, y0 = Infinity, y1 = -Infinity;
+    for (const p of gp) (x0 = Math.min(x0, p.x)), (x1 = Math.max(x1, p.x)), (y0 = Math.min(y0, p.y)), (y1 = Math.max(y1, p.y));
+    const rx = Math.min(W / 2 - 1, (x1 - x0) / 2);
+    const ry = Math.min(H / 2 - 1, Math.max((y1 - y0) / 2, rx * 0.62));
+    ms.ellipse(((x0 + x1) / 2) * kx, ((y0 + y1) / 2) * ky, rx * kx, ry * ky, 0, 0, Math.PI * 2);
+  } else gp.forEach((p, i) => (i ? ms.lineTo(p.x * kx, p.y * ky) : ms.moveTo(p.x * kx, p.y * ky)));
   ms.closePath();
   ms.fill();
   const mb = maskBig.getContext('2d')!;
@@ -333,7 +343,7 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
   const yAvg = yn ? ys / yn : 180;
   const sat = 0.45 + 0.55 * L;
   // 피부를 캐릭터 색으로 바꾸는 정도: 실제에 가까워도 사람 피부색은 대부분 덮음
-  const skinK = 0.6 + 0.4 * k;
+  const skinK = 0.88 + 0.12 * k;
   for (let i = 0, p = 0; i < d.length; i += 4, p++) {
     if (d[i + 3] === 0) continue;
     let r = d[i], gg = d[i + 1], b = d[i + 2];
@@ -344,7 +354,7 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
     if (sk && core) {
       const out = 1 - core[p] / 255;
       if (out > 0) {
-        const shade = Math.max(0.78, Math.min(1.12, 1 + ((y * 255 - yAvg) / 255) * 0.9));
+        const shade = Math.max(0.9, Math.min(1.08, 1 + ((y * 255 - yAvg) / 255) * 0.6));
         const t = out * skinK;
         r += (sk[0] * shade - r) * t;
         gg += (sk[1] * shade - gg) * t;
@@ -355,12 +365,14 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
       // 2) 채도 낮추기 (입술은 색을 덜 빼서 생기 있게)
       const yy = (0.299 * r + 0.587 * gg + 0.114 * b);
       const inCore = core ? core[p] / 255 : 0;
-      const sat2 = o.mouth ? sat + (1 - sat) * inCore : sat;
+      // 색 빼기는 눈 안쪽에만 (캐릭터 색으로 바꾼 둘레 피부·입술은 그대로)
+      const sat2 = o.mouth ? 1 : 1 - (1 - sat) * inCore;
       r = yy + (r - yy) * sat2;
       gg = yy + (gg - yy) * sat2;
       b = yy + (b - yy) * sat2;
       // 3) 밝고 색이 옅은 곳(흰자·이) → 종이색 (입속 이는 덜 눈부시게)
-      const wv = k * (o.mouth ? 0.12 : 0.8) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s));
+      // (눈·입 안쪽만 — 둘레 피부가 하얗게 뜨지 않게)
+      const wv = k * (o.mouth ? 0.12 : 0.8) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s)) * (core ? inCore : 1);
       const pw = o.mouth ? 0.93 : 1;
       r += (PAPER[0] * pw - r) * wv;
       gg += (PAPER[1] * pw - gg) * wv;
