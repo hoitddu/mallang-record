@@ -484,8 +484,10 @@ export function drawIllustration(
     if (rig.base) {
       // 부위별 움직임: 바탕 → 부위(뿌리를 축으로 휨) → 눈. 몸 전체 물결(warp) 대신 부위가 움직임
       pose.warp = undefined;
+      // 몸 뒤 부위(꼬리 등) → 바탕 → 몸 앞 부위(귀 등)
+      for (const part of rig.parts) if (part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
       ctx.drawImage(rig.base, -dw / 2, -dh / 2, dw, dh);
-      for (const part of rig.parts) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
+      for (const part of rig.parts) if (!part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
     } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
     else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
     // 눈 깜빡임 (몸이 물결치면 눈도 같이 따라감)
@@ -550,7 +552,35 @@ function partAngle(def: PreparedRig['parts'][number]['def'], a: AnimSettings, m:
   const speak = clamp(m.speak, 0, 1);
   const side = def.side ?? 1;
   const ph = side > 0 ? 1.3 : 0; // 양쪽이 똑같이 움직이지 않게
-  switch (def.drive) {
+  return (def.amp ?? 1) * driveAngle(def.drive, side, ph, k, sp, t, spr, lvl, pulse, speak, m);
+}
+
+function driveAngle(
+  drive: PreparedRig['parts'][number]['def']['drive'],
+  side: number, ph: number, k: number, sp: number, t: number,
+  spr: number, lvl: number, pulse: number, speak: number, m: MotionFrame
+): number {
+  switch (drive) {
+    case 'earTwitch': {
+      // 뾰족한 귀: 소리가 툭 커지면 움찔, 말하는 동안 살짝 바깥으로, 조용할 땐 가끔 혼자 쫑긋
+      const n = Math.floor((t + ph) / 3.1);
+      const at = n * 3.1 + 0.5 + hash01(n * 3.7 + ph) * 2;
+      const u = (t + ph - at) / 0.32;
+      const solo = u >= 0 && u <= 1 ? Math.sin(Math.PI * u) * Math.sin(u * Math.PI * 4) : 0;
+      return side * (0.24 * k * pulse * Math.sin(t * 28 * sp) + 0.07 * k * clamp(spr, 0, 1.2) + 0.16 * solo * (1 - speak)) + 0.015 * Math.sin(t * 1.4 * sp + ph);
+    }
+    case 'tailSway': {
+      // 고양이 꼬리: 느긋하게 S자로 살랑, 말하면 조금 더 크게, 큰 소리에 휙
+      return Math.sin(t * 1.5 * sp + 0.5) * (0.14 + 0.14 * k * speak) + 0.1 * k * clamp(spr, 0, 1.2) + 0.16 * k * pulse * Math.sin(t * 16 * sp);
+    }
+    case 'tailSwish': {
+      // 소 꼬리: 평소엔 천천히, 말할수록 빠르게 좌우로 휙휙
+      return Math.sin(t * (1.6 + 4.5 * speak) * sp) * (0.16 + 0.3 * k * speak + 0.1 * k * lvl);
+    }
+    case 'bushyTail': {
+      // 다람쥐 큰 꼬리: 목소리에 들썩, 출렁출렁 (꼬리가 커서 각도는 작게)
+      return 0.1 * k * clamp(spr, 0, 1.2) + Math.sin(t * (1.8 + 2.5 * speak) * sp) * (0.05 + 0.09 * k * speak) + 0.12 * k * pulse * Math.sin(t * 13 * sp);
+    }
     case 'earUp': {
       // 쫑긋 귀: 목소리만큼 바깥으로 벌어지고, 소리가 툭 커지면 출렁 + 평소엔 살랑
       const spread = 0.17 * k * clamp(spr, -0.1, 1.2);
@@ -596,10 +626,25 @@ function drawRigPart(
 ) {
   const d = part.def;
   const [x0, y0, x1, y1] = d.box;
-  const px = d.pivot[0] * iw, py = d.pivot[1] * ih;
-  const ax = (d.tip[0] - d.pivot[0]) * iw, ay = (d.tip[1] - d.pivot[1]) * ih;
-  const L = Math.hypot(ax, ay) || 1;
-  const ux = ax / L, uy = ay / L;
+  let px = d.pivot[0] * iw, py = d.pivot[1] * ih;
+  let ax = (d.tip[0] - d.pivot[0]) * iw, ay = (d.tip[1] - d.pivot[1]) * ih;
+  let L = Math.hypot(ax, ay) || 1;
+  let ux = ax / L, uy = ay / L;
+  if (d.cut) {
+    // 자른 선의 가운데가 뿌리, 축은 자른 선에 수직(끝 쪽으로) → 자른 선 위의 점은 전혀 움직이지 않음
+    const [[cx1, cy1], [cx2, cy2]] = d.cut;
+    px = ((cx1 + cx2) / 2) * iw;
+    py = ((cy1 + cy2) / 2) * ih;
+    let nx = -(cy2 - cy1) * ih, ny = (cx2 - cx1) * iw;
+    const nl = Math.hypot(nx, ny) || 1;
+    nx /= nl;
+    ny /= nl;
+    const tx = d.tip[0] * iw - px, ty = d.tip[1] * ih - py;
+    if (nx * tx + ny * ty < 0) (nx = -nx), (ny = -ny);
+    ux = nx;
+    uy = ny;
+    L = Math.max(1, nx * tx + ny * ty);
+  }
   const kx = dw / iw, ky = dh / ih;
   // 통째로 도는 부위이거나 거의 안 움직이면 조각 없이 한 번에 그림 (가볍게)
   if (d.bend === 0 || Math.abs(angle) < 0.004) {
