@@ -7,11 +7,9 @@ if errorlevel 1 (
   pause
   exit /b
 )
-if not exist node_modules (
-  echo Installing packages... ^(first time only, 1-2 minutes^)
-  call npm install
-  if errorlevel 1 ( pause & exit /b )
-)
+echo Checking packages... ^(first time: 1-2 minutes^)
+call npm install --no-audit --no-fund
+if errorlevel 1 ( pause & exit /b )
 echo.
 echo Starting dev server. Keep this window open - close it to stop the server.
 echo.
