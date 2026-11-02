@@ -112,6 +112,19 @@ def eyes_of(img, centers, r=0.05):
     return layer, allmask, info
 
 
+def side_of(X, Y, p1, p2, toward):
+    """선 p1→p2 기준으로 점 toward가 있는 쪽이면 True (자르는 선의 귀 쪽)"""
+    (x1, y1), (x2, y2) = p1, p2
+    f = lambda x, y: (x2 - x1) * (y - y1) - (y2 - y1) * (x - x1)
+    return np.sign(f(X, Y)) == np.sign(f(*toward))
+
+
+def right_of_polyline(X, Y, pts):
+    """세로로 내려가는 꺾은선(pts, 위→아래)의 오른쪽 (그 높이 범위 밖은 위/아래 끝점의 x 기준)"""
+    xs = np.interp(Y, [p[1] for p in pts], [p[0] for p in pts])
+    return X > xs
+
+
 def make(key, parts, eye_centers):
     img = load(key)
     base = img.copy()
@@ -155,10 +168,6 @@ EYES_ONLY = {
     'tomato': [(0.3595, 0.5548), (0.6227, 0.5548)],
     'grape': [(0.3686, 0.5059), (0.5518, 0.5071)],
     'acorn': [(0.4541, 0.5902), (0.6735, 0.5392)],
-    'bear': [(0.3821, 0.3152), (0.615, 0.3154)],
-    'cat': [(0.2802, 0.3711), (0.5035, 0.371)],
-    'cow': [(0.2391, 0.4056), (0.3872, 0.4097)],
-    'squirrel': [(0.2047, 0.3472), (0.3847, 0.3568)],
     'moon': [(0.2449, 0.5612), (0.3992, 0.6414)],
     'balloon': [(0.4088, 0.3431), (0.5899, 0.3531)],
     'blanket': [(0.3335, 0.4801), (0.4928, 0.4806)],
@@ -169,6 +178,10 @@ EYES_ONLY = {
 
 def main():
     os.makedirs(OUT, exist_ok=True)
+    # 예전 조각이 남지 않도록 비우고 전부 다시 만듦 (앱은 이 폴더의 그림을 전부 불러옴)
+    for f in os.listdir(OUT):
+        if f.endswith('.webp'):
+            os.remove(os.path.join(OUT, f))
     meta = {}
 
     # ── 토끼: 두 귀(뿌리에서 가로로 자름), 꼬리 방울
@@ -205,6 +218,44 @@ def main():
     a = img[..., 3] > 0
     tail = a & (X < 0.30)
     meta['dolphin'] = make('dolphin', [('tail', tail, 0)], [(0.785, 0.465)])
+
+    # ── 곰: 동그란 두 귀 (귀와 머리가 만나는 오목한 두 점을 이은 선으로 자름)
+    img = load('bear')
+    X, Y = grid(img.shape)
+    a = img[..., 3] > 0
+    ear_l = a & side_of(X, Y, (0.255, 0.22), (0.385, 0.115), (0.29, 0.1)) & (X < 0.42) & (Y < 0.26)
+    ear_r = a & side_of(X, Y, (0.615, 0.115), (0.745, 0.22), (0.71, 0.1)) & (X > 0.58) & (Y < 0.26)
+    meta['bear'] = make('bear', [('ear-l', ear_l, 0), ('ear-r', ear_r, 0)], [(0.3821, 0.3152), (0.615, 0.3154)])
+
+    # ── 고양이: 뾰족한 두 귀 + S자 꼬리(몸 뒤)
+    img = load('cat')
+    X, Y = grid(img.shape)
+    a = img[..., 3] > 0
+    ear_l = a & side_of(X, Y, (0.143, 0.268), (0.30, 0.152), (0.14, 0.09)) & (X < 0.33) & (Y < 0.29)
+    ear_r = a & side_of(X, Y, (0.516, 0.154), (0.68, 0.255), (0.66, 0.08)) & (X > 0.49) & (Y < 0.28)
+    tail = a & side_of(X, Y, (0.725, 0.62), (0.705, 0.885), (0.85, 0.7)) & (Y > 0.48) & (Y < 0.93) & (X > 0.66)
+    meta['cat'] = make('cat', [('ear-l', ear_l, 0), ('ear-r', ear_r, 0), ('tail', tail, 0)], [(0.2802, 0.3711), (0.5035, 0.371)])
+
+    # ── 소: 옆으로 난 두 귀(진한 갈색, 머리 뒤) + 꼬리(몸 뒤)
+    img = load('cow')
+    X, Y = grid(img.shape)
+    R, G, B, A = [img[..., i].astype(int) for i in range(4)]
+    a = A > 0
+    dark = (A > 60) & (R < 140) & (G < 110)
+    ear_l = ndimage.binary_dilation(dark & (X < 0.215) & (Y > 0.24) & (Y < 0.38), iterations=4) & a & (X < 0.215)
+    ear_r = ndimage.binary_dilation(dark & (X > 0.488) & (X < 0.62) & (Y > 0.24) & (Y < 0.365), iterations=4) & a & (X > 0.488) & (Y < 0.37)
+    tail = a & (X > 0.826) & (Y > 0.40)
+    meta['cow'] = make('cow', [('ear-l', ear_l, 12), ('ear-r', ear_r, 12), ('tail', tail, 0)], [(0.2391, 0.4056), (0.3872, 0.4097)])
+
+    # ── 다람쥐: 뾰족한 두 귀 + 큰 꼬리(몸 뒤, 머리·몸 오른쪽 윤곽을 따라 자름)
+    img = load('squirrel')
+    X, Y = grid(img.shape)
+    a = img[..., 3] > 0
+    ear_l = a & side_of(X, Y, (0.167, 0.217), (0.275, 0.155), (0.2, 0.09)) & (X < 0.3) & (Y < 0.24)
+    ear_r = a & side_of(X, Y, (0.405, 0.164), (0.535, 0.225), (0.5, 0.1)) & (X > 0.38) & (X < 0.56) & (Y < 0.25)
+    edge = [(0.553, 0.10), (0.544, 0.30), (0.542, 0.44), (0.54, 0.48), (0.569, 0.52), (0.602, 0.56), (0.622, 0.60), (0.643, 0.65), (0.651, 0.70), (0.651, 0.75), (0.643, 0.78), (0.636, 0.81), (0.63, 0.835), (0.62, 0.95)]
+    tail = a & right_of_polyline(X, Y, edge) & ~ear_r
+    meta['squirrel'] = make('squirrel', [('ear-l', ear_l, 0), ('ear-r', ear_r, 0), ('tail', tail, 0)], [(0.2047, 0.3472), (0.3847, 0.3568)])
 
     # ── 눈 깜빡임만 (부위 움직임 없음): 눈 위치는 입 위치를 기준으로 찾은 뒤 눈으로 확인한 값
     for key, centers in EYES_ONLY.items():
