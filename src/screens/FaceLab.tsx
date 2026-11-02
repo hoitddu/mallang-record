@@ -243,7 +243,7 @@ export function FaceLab() {
           <Slider id="ft-mouth" label="입 크기" value={tune.mouthSize} min={0.5} max={1} step={0.01} onChange={(v) => changeTune({ mouthSize: v })} format={(v) => v.toFixed(2)} />
           <Slider id="ft-down" label="눈과 입 사이" value={tune.mouthDown} min={0} max={0.4} step={0.01} onChange={(v) => changeTune({ mouthDown: v })} format={(v) => v.toFixed(2)} />
           <div className="flex items-center justify-between gap-2">
-            <button className="btn-sheet !py-2 text-[14px]" onClick={() => changeTune({ ...FACE_TUNE_DEFAULT })}>
+            <button className="btn-sheet shrink-0 whitespace-nowrap !py-2 text-[14px]" onClick={() => changeTune({ ...FACE_TUNE_DEFAULT })}>
               처음 값으로
             </button>
             <p className="hint text-right">마음에 드는 값을 알려 주시면 기본값으로 정할게요</p>
