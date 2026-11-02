@@ -28,7 +28,7 @@ self.addEventListener('fetch', (e) => {
     return;
   }
   // 빌드된 파일·글꼴: 저장본 먼저
-  if ((url.origin === location.origin && url.pathname.startsWith('/assets/')) || /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) {
+  if ((url.origin === location.origin && (url.pathname.startsWith('/assets/') || url.pathname.startsWith('/mediapipe/') || url.pathname.startsWith('/models/'))) || /fonts\.(googleapis|gstatic)\.com$/.test(url.hostname)) {
     e.respondWith(
       caches.match(req).then(
         (hit) =>
