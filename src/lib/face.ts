@@ -11,6 +11,45 @@
 import type { FaceLandmarker, NormalizedLandmark } from '@mediapipe/tasks-vision';
 import { paperGrain, type Prepared } from './images';
 
+// ───────── 눈·입 모양 맞추기 (시안 화면에서 조절해 보고 기본값을 정함) ─────────
+
+export interface FaceTune {
+  /** 눈마다 양 끝을 수평으로 맞추는 정도 0(얼굴 기울기만) ~ 1(눈마다 완전히 수평) */
+  level: number;
+  /** 눈꼬리 기울기(도). + 올라감, - 처짐 */
+  tilt: number;
+  /** 눈 사이 넓히기 (캐릭터 눈 자리 대비 배수) */
+  spread: number;
+  /** 눈 세로로 늘이기 (동그랗게) */
+  round: number;
+  /** 눈 크기 (캐릭터 두 눈 사이 거리 대비) */
+  eyeSize: number;
+  /** 입 크기 (두 눈 사이 거리 대비) */
+  mouthSize: number;
+  /** 입을 아래로 내리기 (두 눈 사이 거리 대비) */
+  mouthDown: number;
+}
+export const FACE_TUNE_DEFAULT: FaceTune = { level: 0.5, tilt: 3, spread: 1.1, round: 1.3, eyeSize: 0.5, mouthSize: 0.72, mouthDown: 0.2 };
+const TUNE_KEY = 'mallang-face-tune';
+/** 지금 쓰는 값 (시안 화면에서 바꾸면 이 기기에만 기억) */
+export const FACE_TUNE: FaceTune = (() => {
+  try {
+    const v = JSON.parse(localStorage.getItem(TUNE_KEY) || 'null');
+    if (v && typeof v === 'object') return { ...FACE_TUNE_DEFAULT, ...v };
+  } catch {
+    /* 저장소를 못 쓰면 기본값 */
+  }
+  return { ...FACE_TUNE_DEFAULT };
+})();
+export function setFaceTune(v: Partial<FaceTune>) {
+  Object.assign(FACE_TUNE, v);
+  try {
+    localStorage.setItem(TUNE_KEY, JSON.stringify(FACE_TUNE));
+  } catch {
+    /* 기억 못 해도 이번엔 적용 */
+  }
+}
+
 // ───────── 인식 엔진 불러오기 (처음 한 번, 필요할 때만) ─────────
 
 let landmarkerP: Promise<FaceLandmarker> | null = null;
@@ -195,7 +234,7 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
     const cen = centroid(E.ring.map((i) => pts[i]));
     // 눈마다 양 끝을 수평으로 (눈꼬리가 올라간 '째진 눈'처럼 보이지 않게)
     const [l, r] = a.x < b.x ? [a, b] : [b, a];
-    const eyeRoll = Math.atan2(r.y - l.y, r.x - l.x);
+    const eyeRoll = roll + (Math.atan2(r.y - l.y, r.x - l.x) - roll) * FACE_TUNE.level;
     cutOut(c, src, cen, eyeRoll, (w * EYE_CROP) / EYE_W, o.mirror, E.ring.map((i) => pts[i]), [1.5, 1.8, 2.3], E.lid.map((i) => pts[i]), false, [1.1, 1.3, 1.25], true);
     stylize(c, L, { ink, dark: ink, lip: null, skin: o.skinEye ?? null, mouth: false });
   };

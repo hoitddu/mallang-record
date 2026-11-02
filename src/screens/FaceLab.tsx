@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stage } from '../components/Stage';
-import { Chips, Notice, TopBar } from '../components/ui';
+import { Chips, Notice, Slider, TopBar } from '../components/ui';
 import { BUILTINS } from '../lib/builtins';
 import { defaultAnim } from '../lib/db';
-import { artSkinColors, extractPatches, LandmarkSmoother, loadFaceLandmarker, type FacePatches } from '../lib/face';
+import { artSkinColors, extractPatches, FACE_TUNE, FACE_TUNE_DEFAULT, LandmarkSmoother, loadFaceLandmarker, setFaceTune, type FacePatches, type FaceTune } from '../lib/face';
 import { prepare, type Prepared } from '../lib/images';
 import { IDLE_FRAME } from '../lib/motion';
 import { COLORS, drawBackground, drawIllustration } from '../lib/render';
@@ -31,6 +31,13 @@ export function FaceLab() {
   const [status, setStatus] = useState('');
   const [err, setErr] = useState<string | null>(null);
   const [prep, setPrep] = useState<Prepared | null>(null);
+  const [tune, setTune] = useState<FaceTune>({ ...FACE_TUNE });
+  const changeTune = (v: Partial<FaceTune>) => {
+    setFaceTune(v);
+    setTune({ ...FACE_TUNE });
+    // 사진 모드는 눈 수평 맞추기가 오릴 때 들어가므로 다시 오림
+    if (source === 'photo' && 'level' in v) photoPatches();
+  };
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -224,6 +231,25 @@ export function FaceLab() {
       <div className="mt-3">
         <Chips value={levelKey} onChange={setLevelKey} options={LEVELS.map((l) => ({ v: l.v, label: l.label }))} />
       </div>
+
+      <details className="card mt-4 p-4" open>
+        <summary className="font-display text-[17px]">눈·입 모양 맞추기</summary>
+        <div className="mt-3 space-y-3">
+          <Slider id="ft-tilt" label="눈꼬리 (처짐 ↔ 올라감)" value={tune.tilt} min={-12} max={12} step={1} onChange={(v) => changeTune({ tilt: v })} format={(v) => `${v > 0 ? '+' : ''}${v}°`} />
+          <Slider id="ft-spread" label="눈 사이 (좁게 ↔ 넓게)" value={tune.spread} min={0.85} max={1.45} step={0.01} onChange={(v) => changeTune({ spread: v })} format={(v) => `${v.toFixed(2)}배`} />
+          <Slider id="ft-round" label="눈 동그랗게" value={tune.round} min={1} max={1.7} step={0.05} onChange={(v) => changeTune({ round: v })} format={(v) => `${v.toFixed(2)}배`} />
+          <Slider id="ft-eye" label="눈 크기" value={tune.eyeSize} min={0.35} max={0.7} step={0.01} onChange={(v) => changeTune({ eyeSize: v })} format={(v) => v.toFixed(2)} />
+          <Slider id="ft-level" label="눈 수평 맞추기" value={tune.level} min={0} max={1} step={0.05} onChange={(v) => changeTune({ level: v })} format={(v) => `${Math.round(v * 100)}%`} />
+          <Slider id="ft-mouth" label="입 크기" value={tune.mouthSize} min={0.5} max={1} step={0.01} onChange={(v) => changeTune({ mouthSize: v })} format={(v) => v.toFixed(2)} />
+          <Slider id="ft-down" label="눈과 입 사이" value={tune.mouthDown} min={0} max={0.4} step={0.01} onChange={(v) => changeTune({ mouthDown: v })} format={(v) => v.toFixed(2)} />
+          <div className="flex items-center justify-between gap-2">
+            <button className="btn-sheet !py-2 text-[14px]" onClick={() => changeTune({ ...FACE_TUNE_DEFAULT })}>
+              처음 값으로
+            </button>
+            <p className="hint text-right">마음에 드는 값을 알려 주시면 기본값으로 정할게요</p>
+          </div>
+        </div>
+      </details>
 
       <h2 className="mt-5 font-display text-[17px]">세 단계 나란히</h2>
       <div className="mt-2 grid grid-cols-3 gap-2">
