@@ -319,7 +319,6 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
   const id = g.getImageData(0, 0, W, H);
   const d = id.data;
   const core = coreCache.get(c);
-  const [dr, dg, db] = hex(o.dark);
   const lc = o.lip ? hex(o.lip) : null;
   const sk = o.skin ? hex(o.skin) : null;
   // 둘레 피부의 평균 밝기 (그늘을 살리며 캐릭터 색으로 바꾸기 위해)
@@ -366,12 +365,7 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
       r += (PAPER[0] * pw - r) * wv;
       gg += (PAPER[1] * pw - gg) * wv;
       b += (PAPER[2] * pw - b) * wv;
-      // 4) 어두운 곳(눈동자·속눈썹 / 입속) → 그림 선 색 / 따뜻한 어두운 색
-      // (입속은 어둡게 칠하지 않음 — 이·혀가 그대로 보이게)
-      const dv = o.mouth ? 0 : k * 0.5 * (1 - sstep(0.1, 0.35, y));
-      r += (dr - r) * dv;
-      gg += (dg - gg) * dv;
-      b += (db - b) * dv;
+      // 4) 어두운 곳(눈동자·속눈썹·입속)은 칠하지 않음 — 실제 눈·입 그대로
       // 5) 붉은 곳(입술) → 캐릭터 입 색 쪽으로
       if (lc) {
         const red = sstep(0.08, 0.3, s) * sstep(0.02, 0.12, (d[i] - d[i + 2]) / 255) * (1 - sstep(0.7, 0.9, y)) * (core ? core[p] / 255 : 1);
@@ -381,7 +375,7 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
         b += (lc[2] - b) * lv;
       }
       // 6) 그림처럼 단계 나누기 (그림에 가까울수록)
-      if (k > 0.5 && !(o.mouth && inCore > 0.5)) {
+      if (k > 0.5 && inCore < 0.5) {
         const q = 255 / 6;
         const m = (k - 0.5) * 0.8;
         r += (Math.round(r / q) * q - r) * m;
@@ -408,18 +402,5 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
   }
   // 그림 선 (눈: 윗눈꺼풀, 입: 입술 둘레) — 그림에 가까울수록 진하게
   const ln = lineCache.get(c);
-  // 입은 선을 긋지 않음(입술이 어두워 보이지 않게)
-  if (ln && ln.pts.length > 1 && k > 0.05 && !ln.closed) {
-    g.save();
-    g.globalAlpha = Math.min(1, (ln.closed ? 0.1 + 0.5 * k : 0.2 + 0.75 * k));
-    g.strokeStyle = ln.closed && o.lip ? mixHex(o.lip, o.ink, 0.25) : o.ink;
-    g.lineWidth = Math.max(1.5, W * (ln.closed ? 0.018 : 0.03));
-    g.lineCap = 'round';
-    g.lineJoin = 'round';
-    g.beginPath();
-    ln.pts.forEach((p, i) => (i ? g.lineTo(p.x, p.y) : g.moveTo(p.x, p.y)));
-    if (ln.closed) g.closePath();
-    g.stroke();
-    g.restore();
-  }
+  // 그린 선(눈꺼풀·입술 선)은 넣지 않음 — 속눈썹·아이라인처럼 보여 실제 눈이 덜 자연스러움
 }
