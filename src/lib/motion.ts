@@ -25,9 +25,54 @@ export interface MotionFrame {
   travel: number;
   /** 초 */
   t: number;
+  /** 천천히 따라가는 세기 (빨리 오르고 0.5초에 걸쳐 내려옴) */
+  glide: number;
+  /** 아주 천천히 따라가는 세기 (오르는 데 0.35초, 내려오는 데 1.5초) — 풍선·유모차·달 */
+  drift: number;
+  /** 말을 시작한 뒤 지난 초 (마지막 시작 기준, 없으면 99) */
+  startT: number;
+  /** 말을 멈춘 뒤 지난 초 (말하는 중이면 0, 없으면 99) */
+  quietT: number;
+  /**
+   * "동작 시작" 신호: 소리가 툭 커진 순간 중, 직전 동작과 최소 간격(짧게 0.35초·보통 0.6초·길게 0.95초)이
+   * 지난 것만 동작 시작으로 셈. aX: 마지막 시작 뒤 지난 초, bX: 그 전 시작 뒤 지난 초(겹쳐 이어지게),
+   * nX: 지금까지 시작 횟수(좌우 번갈아 쓰기), eX: 마지막 시작의 세기 0~1
+   */
+  aS: number; bS: number; nS: number; eS: number;
+  aM: number; bM: number; nM: number; eM: number;
+  aL: number; bL: number; nL: number; eL: number;
 }
 
-export const IDLE_FRAME: MotionFrame = { lvl: 0, spring: 0, pulse: 0, speak: 0, phase: 0, travel: 0, t: 0 };
+export const IDLE_FRAME: MotionFrame = {
+  lvl: 0, spring: 0, pulse: 0, speak: 0, phase: 0, travel: 0, t: 0,
+  glide: 0, drift: 0, startT: 99, quietT: 99,
+  aS: 99, bS: 99, nS: 0, eS: 0,
+  aM: 99, bM: 99, nM: 0, eM: 0,
+  aL: 99, bL: 99, nL: 0, eL: 0,
+};
+
+/** 동작 시작 사이 최소 간격 (초): 짧게·보통·길게 */
+export const ACT_GAPS = { S: 0.35, M: 0.6, L: 0.95 } as const;
+const SINCE_MAX = 99;
+
+/** 녹음이 끝난 뒤(over초 지남)의 움직임: 세기는 줄고, 지난 시간은 계속 흐름 */
+export function advanceFrame(f: MotionFrame, over: number, t: number): MotionFrame {
+  const d = Math.exp(-over / 0.15);
+  const adv = (v: number) => Math.min(SINCE_MAX, v + over);
+  return {
+    ...f,
+    lvl: f.lvl * d,
+    spring: f.spring * d,
+    pulse: f.pulse * d,
+    speak: f.speak * d,
+    glide: f.glide * Math.exp(-over / 0.5),
+    drift: f.drift * Math.exp(-over / 1.5),
+    startT: adv(f.startT),
+    quietT: f.quietT > 0 ? adv(f.quietT) : Math.min(SINCE_MAX, over),
+    aS: adv(f.aS), bS: adv(f.bS), aM: adv(f.aM), bM: adv(f.bM), aL: adv(f.aL), bL: adv(f.bL),
+    t,
+  };
+}
 
 export interface MotionParams {
   sensitivity: number; // 0~1
@@ -56,6 +101,15 @@ export class MotionProcessor {
   firstVoice = -1;
   /** 원시 게이트 통과값 (소리 표시줄용) */
   raw = 0;
+  glide = 0;
+  drift = 0;
+  startT = SINCE_MAX;
+  quietT = SINCE_MAX;
+  act = {
+    S: { a: SINCE_MAX, b: SINCE_MAX, n: 0, e: 0 },
+    M: { a: SINCE_MAX, b: SINCE_MAX, n: 0, e: 0 },
+    L: { a: SINCE_MAX, b: SINCE_MAX, n: 0, e: 0 },
+  };
 
   constructor(public p: MotionParams, private adaptive: boolean, floorDb = -58) {
     this.floor = floorDb;
@@ -81,6 +135,13 @@ export class MotionProcessor {
       phase: this.phase,
       travel: this.travel,
       t: this.t,
+      glide: this.glide,
+      drift: this.drift,
+      startT: this.startT,
+      quietT: this.quietT,
+      aS: this.act.S.a, bS: this.act.S.b, nS: this.act.S.n, eS: this.act.S.e,
+      aM: this.act.M.a, bM: this.act.M.b, nM: this.act.M.n, eM: this.act.M.e,
+      aL: this.act.L.a, bL: this.act.L.b, nL: this.act.L.n, eL: this.act.L.e,
     };
   }
 
@@ -115,11 +176,24 @@ export class MotionProcessor {
       this.below += dt;
       this.above = 0;
     }
+    // 지난 시간들은 계속 흐름 (상한 99초)
+    const tick = (v: number) => Math.min(SINCE_MAX, v + dt);
+    this.startT = tick(this.startT);
+    if (this.quietT > 0) this.quietT = tick(this.quietT);
+    for (const g of [this.act.S, this.act.M, this.act.L]) {
+      g.a = tick(g.a);
+      g.b = tick(g.b);
+    }
     if (!this.speaking && this.above >= 0.03) {
       this.speaking = true;
+      this.startT = 0;
+      this.quietT = 0;
       if (this.firstVoice < 0) this.firstVoice = this.t;
     }
-    if (this.speaking && this.below >= 0.22) this.speaking = false;
+    if (this.speaking && this.below >= 0.22) {
+      this.speaking = false;
+      this.quietT = 1e-6; // 지금 막 멈춤 → 다음 단계부터 흐름
+    }
     this.speak += ((this.speaking ? 1 : 0) - this.speak) * k(0.12);
 
     // onset (소리가 툭 커지는 순간)
@@ -127,7 +201,22 @@ export class MotionProcessor {
     if (this.refract <= 0 && this.fast > 0.14 && this.fast - this.base > 0.16 && this.pulse < 0.4) {
       this.pulse = 1;
       this.refract = 0.16;
+      // 동작 시작: 간격이 충분히 지난 것만 (긴 소리에 동작이 끝없이 반복되지 않게)
+      const e = clamp((this.fast - this.base) * 1.8 + this.fast * 0.6, 0.35, 1);
+      for (const [key, gap] of [['S', ACT_GAPS.S], ['M', ACT_GAPS.M], ['L', ACT_GAPS.L]] as const) {
+        const g = this.act[key];
+        // 간격은 속도 설정과 무관하게 고정: 속도는 동작을 빠르게 할 뿐, 동작 횟수는 아이 목소리의 리듬을 따름
+        if (g.a >= gap) {
+          g.b = g.a;
+          g.a = 0;
+          g.n += 1;
+          g.e = e;
+        }
+      }
     }
+    // 천천히 따라가는 세기들
+    this.glide += (x - this.glide) * k(x > this.glide ? 0.1 : 0.5 / speed);
+    this.drift += (x - this.drift) * k(x > this.drift ? 0.35 : 1.5 / speed);
     this.pulse *= Math.exp(-dt / (0.13 / speed));
 
     // 감쇠 스프링 (탄성)
@@ -179,39 +268,31 @@ export function estimateFloor(rms: Float32Array): number {
   return clamp(Math.min(p10, max - 26), -78, -36);
 }
 
-export interface MotionTrack {
-  lvl: Float32Array;
-  spring: Float32Array;
-  pulse: Float32Array;
-  speak: Float32Array;
-  phase: Float32Array;
-  travel: Float32Array;
+/** 프레임마다 저장해 두는 값 이름 (MotionFrame에서 t를 뺀 것) */
+const CHANNELS = [
+  'lvl', 'spring', 'pulse', 'speak', 'phase', 'travel', 'glide', 'drift', 'startT', 'quietT',
+  'aS', 'bS', 'nS', 'eS', 'aM', 'bM', 'nM', 'eM', 'aL', 'bL', 'nL', 'eL',
+] as const;
+type Channel = (typeof CHANNELS)[number];
+/** 사이를 섞지 않고 가까운 값을 쓰는 것 (횟수·세기는 섞으면 안 됨) */
+const STEPPED = new Set<Channel>(['nS', 'nM', 'nL', 'eS', 'eM', 'eL']);
+/** 지난 시간: 섞되 동작이 새로 시작된 순간(값이 줄어드는 곳)은 섞지 않음 */
+const SINCE = new Set<Channel>(['startT', 'quietT', 'aS', 'bS', 'aM', 'bM', 'aL', 'bL']);
+
+export type MotionTrack = Record<Channel, Float32Array> & {
   firstVoice: number; // 초, 없으면 -1
   duration: number;
-}
+};
 
 /** 녹음 전체를 미리 계산 → 재생·영상 저장 때 같은 결과 (동기화 보장) */
 export function computeTrack(rms: Float32Array, p: MotionParams, floor: number): MotionTrack {
   const n = rms.length;
   const proc = new MotionProcessor(p, false, floor);
-  const t: MotionTrack = {
-    lvl: new Float32Array(n),
-    spring: new Float32Array(n),
-    pulse: new Float32Array(n),
-    speak: new Float32Array(n),
-    phase: new Float32Array(n),
-    travel: new Float32Array(n),
-    firstVoice: -1,
-    duration: n / FPS,
-  };
+  const t = { firstVoice: -1, duration: n / FPS } as MotionTrack;
+  for (const c of CHANNELS) (t as any)[c] = new Float32Array(n);
   for (let i = 0; i < n; i++) {
     const fr = i === 0 ? proc.frame() : proc.step(rms[i], 1 / FPS);
-    t.lvl[i] = fr.lvl;
-    t.spring[i] = fr.spring;
-    t.pulse[i] = fr.pulse;
-    t.speak[i] = fr.speak;
-    t.phase[i] = fr.phase;
-    t.travel[i] = fr.travel;
+    for (const c of CHANNELS) t[c][i] = fr[c];
   }
   t.firstVoice = proc.firstVoice;
   return t;
@@ -220,37 +301,30 @@ export function computeTrack(rms: Float32Array, p: MotionParams, floor: number):
 /** 소리가 끝난 뒤에도 그림이 제자리로 돌아오도록, 범위 밖은 쉬는 상태로 */
 export function frameAt(tr: MotionTrack | null, time: number): MotionFrame {
   if (!tr || time <= 0) {
-    return { ...IDLE_FRAME, t: time, phase: tr ? 0 : 0, travel: 0 };
+    return { ...IDLE_FRAME, t: time };
   }
   const n = tr.lvl.length;
   const fi = time * FPS;
+  const at = (i: number, a: number): MotionFrame => {
+    const f = { t: time } as MotionFrame;
+    for (const c of CHANNELS) {
+      const arr = tr[c];
+      const v0 = arr[i], v1 = arr[Math.min(i + 1, n - 1)];
+      if (STEPPED.has(c)) f[c] = a < 0.5 ? v0 : v1;
+      else if (SINCE.has(c) && v1 < v0) f[c] = v0 + a / FPS; // 새 동작 직전: 섞지 않고 시간만 흐름
+      else f[c] = v0 + (v1 - v0) * a;
+    }
+    return f;
+  };
   if (fi >= n - 1) {
-    // 끝난 뒤: 마지막 값에서 0으로 부드럽게 수렴
+    // 끝난 뒤: 세기는 0으로 부드럽게, 지난 시간은 계속 흐름
     const over = time - (n - 1) / FPS;
-    const decay = Math.exp(-over / 0.15);
-    const L = n - 1;
-    return {
-      lvl: tr.lvl[L] * decay,
-      spring: tr.spring[L] * decay,
-      pulse: tr.pulse[L] * decay,
-      speak: tr.speak[L] * decay,
-      phase: tr.phase[L] + over * 2 * Math.PI * 0.4,
-      travel: tr.travel[L],
-      t: time,
-    };
+    const f = advanceFrame(at(n - 1, 0), over, time);
+    f.phase = tr.phase[n - 1] + over * 2 * Math.PI * 0.4;
+    return f;
   }
   const i = Math.floor(fi);
-  const a = fi - i;
-  const g = (arr: Float32Array) => arr[i] + (arr[i + 1] - arr[i]) * a;
-  return {
-    lvl: g(tr.lvl),
-    spring: g(tr.spring),
-    pulse: g(tr.pulse),
-    speak: g(tr.speak),
-    phase: g(tr.phase),
-    travel: g(tr.travel),
-    t: time,
-  };
+  return at(i, fi - i);
 }
 
 /** "예시 소리 패턴" — 그림 편집에서 움직임을 미리 보는 용도 (실제 목소리 아님) */

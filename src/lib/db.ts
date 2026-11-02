@@ -36,7 +36,9 @@ export function defaultCaption(text: string): CaptionSettings {
  * 이미 기기에 저장된 기본 그림이 아직 예전 기본값 그대로면 새 캐릭터 움직임으로 바꿔 줍니다.
  * (사용자가 직접 다른 움직임을 골라 둔 그림, 이미 저장된 기록·영상은 건드리지 않음)
  */
-const ANIM_REV = 2;
+const ANIM_REV = 3;
+/** 3단계: 포도 기본 움직임 탱글 → 대롱 (아직 원래 기본값일 때만) */
+const OLD_DEFAULT_V3: Record<string, AnimType> = { grape: 'jelly' };
 const OLD_DEFAULT: Record<string, AnimType> = {
   apple: 'squish', eggplant: 'squish', banana: 'squish', mandarin: 'squish', watermelon: 'squish', strawberry: 'squish',
   carrot: 'squish', corn: 'squish', grape: 'squish', acorn: 'squish',
@@ -53,8 +55,10 @@ export async function ensureSeeded() {
   for (const p of all) {
     if (!p.builtinKey || (p.animRev ?? 1) >= ANIM_REV) continue;
     const def = BUILTIN_MAP[p.builtinKey];
+    const rev = p.animRev ?? 1;
     const next: Picture = { ...p, animRev: ANIM_REV };
-    if (def && p.anim?.type === OLD_DEFAULT[p.builtinKey]) next.anim = { ...p.anim, type: def.anim };
+    if (def && rev < 2 && p.anim?.type === OLD_DEFAULT[p.builtinKey]) next.anim = { ...p.anim, type: def.anim };
+    if (def && rev < 3 && next.anim?.type === OLD_DEFAULT_V3[p.builtinKey]) next.anim = { ...next.anim, type: def.anim };
     await tx.store.put(next);
   }
   let i = 0;
