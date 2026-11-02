@@ -1,5 +1,5 @@
 import { openDB, type IDBPDatabase } from 'idb';
-import { BUILTINS } from './builtins';
+import { BUILTIN_MAP, BUILTINS } from './builtins';
 import type { AnimSettings, AnimType, CaptionSettings, Clip, Draft, Picture, Settings } from './types';
 
 /** 모든 데이터는 이 기기의 IndexedDB에만 저장됩니다. 서버로 보내지 않습니다. */
@@ -31,12 +31,32 @@ export function defaultCaption(text: string): CaptionSettings {
   return { show: true, text, mode: 'voice', size: 1, position: 0.5, color: '#3A3350', font: 'hand' };
 }
 
-/** 처음 실행 시 기본 그림 23종을 등록 (이미 있는 것은 건너뜀) */
+/**
+ * 캐릭터 움직임 도입 전의 기본 움직임표.
+ * 이미 기기에 저장된 기본 그림이 아직 예전 기본값 그대로면 새 캐릭터 움직임으로 바꿔 줍니다.
+ * (사용자가 직접 다른 움직임을 골라 둔 그림, 이미 저장된 기록·영상은 건드리지 않음)
+ */
+const ANIM_REV = 2;
+const OLD_DEFAULT: Record<string, AnimType> = {
+  apple: 'squish', eggplant: 'squish', banana: 'squish', mandarin: 'squish', watermelon: 'squish', strawberry: 'squish',
+  carrot: 'squish', corn: 'squish', grape: 'squish', acorn: 'squish',
+  bear: 'hop', rabbit: 'hop', cat: 'hop', puppy: 'hop', cow: 'hop', squirrel: 'hop',
+  dolphin: 'swim', moon: 'float',
+};
+
+/** 처음 실행 시 기본 그림 23종을 등록 (이미 있는 것은 건너뜀) + 기본 움직임표 업데이트 */
 export async function ensureSeeded() {
   const d = await db();
   const all: Picture[] = await d.getAll('pictures');
   const have = new Set(all.map((p) => p.builtinKey).filter(Boolean));
   const tx = d.transaction('pictures', 'readwrite');
+  for (const p of all) {
+    if (!p.builtinKey || (p.animRev ?? 1) >= ANIM_REV) continue;
+    const def = BUILTIN_MAP[p.builtinKey];
+    const next: Picture = { ...p, animRev: ANIM_REV };
+    if (def && p.anim?.type === OLD_DEFAULT[p.builtinKey]) next.anim = { ...p.anim, type: def.anim };
+    await tx.store.put(next);
+  }
   let i = 0;
   for (const b of BUILTINS) {
     i++;
@@ -48,6 +68,7 @@ export async function ensureSeeded() {
       category: b.category,
       builtinKey: b.key,
       anim: defaultAnim(b.anim),
+      animRev: ANIM_REV,
       transform: { scale: 1, x: 0, y: 0 },
       createdAt: now,
       updatedAt: now,

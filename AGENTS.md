@@ -54,6 +54,7 @@ Codex는 이 파일을 자동으로 읽고, Claude는 `CLAUDE.md`를 거쳐 이 
 - **보안 헤더 유지:** `vercel.json`의 보안 헤더(Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy)를 지우거나 느슨하게 하지 마세요.
   - 새 외부 주소(글꼴, 이미지, API 등)를 써야 하면 CSP에 **그 주소만** 추가하고, 이유를 작업기록에 남기세요.
   - CSP 때문에 기능이 막히면 브라우저 콘솔의 "Refused to ..." 메시지를 보고 필요한 항목만 허용하세요.
+  - Vercel **미리보기 주소**에서만 `vercel.live/.../feedback.js`가 CSP에 막혔다는 메시지가 뜹니다. Vercel 의견 도구라 운영 주소에는 없으니 **허용하지 마세요** (정상).
 - **위험한 코드 금지:** `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `new Function`을 쓰지 마세요. 화면 문구는 React로 그리면 안전합니다.
 - **패키지:** 꼭 필요할 때만 추가하고, 추가 후 `npm audit` 0개를 유지합니다.
 - **개발 서버:** `npm run dev`는 같은 와이파이의 휴대폰에서 열 수 있도록 네트워크에 공개됩니다. 집처럼 믿을 수 있는 와이파이에서만 켜도록 사용자에게 안내하세요.
