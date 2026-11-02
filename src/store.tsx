@@ -9,7 +9,8 @@ export type Route =
   | { name: 'clip'; clipId: string }
   | { name: 'archive' }
   | { name: 'compose'; clipIds: string[] }
-  | { name: 'settings' };
+  | { name: 'settings' }
+  | { name: 'motions' };
 
 export interface AppCtx {
   pictures: Picture[];

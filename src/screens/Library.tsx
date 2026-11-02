@@ -139,6 +139,9 @@ export function Library({ mode }: { mode: 'pick' | 'manage' }) {
         <button className="btn-sheet !py-2.5 text-[15px]" onClick={() => setBulkOpen(true)}>
           여러 장 한꺼번에 올리기
         </button>
+        <button className="btn-sheet !py-2.5 text-[15px]" onClick={() => go({ name: 'motions' })}>
+          움직임 한눈에 보기
+        </button>
       </div>
       {mode === 'pick' && <p className="hint -mt-2 mb-3">그림을 누르면 바로 녹음 화면으로 가요. 연필을 누르면 그림을 바꾸거나 움직임을 고를 수 있어요.</p>}
       <PictureGrid

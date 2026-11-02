@@ -8,6 +8,7 @@ import { ClipEditor } from './screens/ClipEditor';
 import { Compose } from './screens/Compose';
 import { Home } from './screens/Home';
 import { Library } from './screens/Library';
+import { Motions } from './screens/Motions';
 import { Recorder } from './screens/Recorder';
 import { SettingsScreen } from './screens/Settings';
 
@@ -112,6 +113,7 @@ export default function App() {
       {r.name === 'archive' && <Archive />}
       {r.name === 'compose' && <Compose clipIds={r.clipIds} />}
       {r.name === 'settings' && <SettingsScreen />}
+      {r.name === 'motions' && <Motions />}
       <Toast text={text} />
     </Ctx.Provider>
   );

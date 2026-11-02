@@ -59,6 +59,11 @@ export function Home() {
       <div className="mt-5">
         <Stage draw={draw} aspect={4 / 3} maxHeight="34dvh" />
         <p className="hint mt-2 text-center">예시 움직임이에요. 아이가 말하면 그림이 이렇게 반응해요.</p>
+        <div className="mt-1 text-center">
+          <button className="btn-ghost text-ink underline decoration-line decoration-2 underline-offset-4" onClick={() => go({ name: 'motions' })}>
+            모든 그림 움직임 한눈에 보기 →
+          </button>
+        </div>
       </div>
 
       <div className="mt-6 grid gap-3">
