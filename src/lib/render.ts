@@ -184,6 +184,13 @@ export function drawIllustration(
   // 캐릭터별 몸 움직임 (poses.ts). facing: 그림이 보는 방향(오른쪽 1, 왼쪽 -1)
   const facing = prep.facing ?? 1;
   const pose = computePose(a, m, S, facing);
+  // 실제 그림 영역(투명 여백 제외): 그림 가운데 기준 위치·크기
+  const bd = prep.bounds ?? { x0: 0, y0: 0, x1: 1, y1: 1 };
+  const artCx = ((bd.x0 + bd.x1) / 2 - 0.5) * dw;
+  const artCy = ((bd.y0 + bd.y1) / 2 - 0.5) * dh;
+  const artW = (bd.x1 - bd.x0) * dw;
+  const artH = (bd.y1 - bd.y0) * dh;
+  const ground = by + (bd.y1 - 0.5) * dh; // 실제 그림의 바닥
 
   // ── 뒤쪽 효과
   if (a.effects && a.type === 'fly') mirrored(ctx, cx, facing, () => drawClouds(ctx, S, cx, cy, m, k));
@@ -196,17 +203,21 @@ export function drawIllustration(
     ctx.globalAlpha *= pose.shadow * (1 - 0.5 * lift);
     ctx.fillStyle = COLORS.shadow;
     ctx.beginPath();
-    const sw = dw * 0.36 * sc * (pose.sx || 1);
-    ctx.ellipse(bx + pose.dx * 0.8, by + dh / 2 + S * 0.025, sw, S * 0.028 * sc, 0, 0, Math.PI * 2);
+    const sw = artW * 0.4 * sc * (pose.sx || 1);
+    ctx.ellipse(bx + artCx + pose.dx * 0.8, ground + S * 0.02, sw, S * 0.028 * sc, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
   // ── 그림
+  // 화면에서 실제로 그려질 크기(캔버스 배율 포함) → 그 크기에 맞는 축소본 사용
+  const tr = ctx.getTransform();
+  const need = dw * Math.hypot(tr.a, tr.b) * 1.15;
   ctx.save();
   {
-    // 회전·크기 변화의 중심: 아래(착지), 위(매달림), 뒤쪽 아래(끄덕) 등 캐릭터마다 다름
-    const pvx = pose.pivot.x * dw, pvy = pose.pivot.y * dh;
+    // 회전·크기 변화의 중심: 아래(착지), 위(매달림), 뒤쪽 아래(끄덕) 등 캐릭터마다 다름.
+    // 이미지 테두리가 아니라 투명 여백을 뺀 실제 그림 기준 (예: 수박 바닥 = 수박이 실제로 닿는 곳)
+    const pvx = artCx + pose.pivot.x * artW, pvy = artCy + pose.pivot.y * artH;
     ctx.translate(bx + pose.dx + pvx, by + pose.dy + pvy);
     ctx.rotate(pose.rot);
     ctx.scale(pose.sx, pose.sy);
@@ -218,15 +229,15 @@ export function drawIllustration(
       // 부위별 움직임: 바탕 → 부위(뿌리를 축으로 휨) → 눈. 몸 전체 물결(warp) 대신 부위가 움직임
       pose.warp = undefined;
       // 몸 뒤 부위(꼬리 등) → 바탕 → 몸 앞 부위(귀 등)
-      for (const part of rig.parts) if (part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
-      ctx.drawImage(rig.base, -dw / 2, -dh / 2, dw, dh);
-      for (const part of rig.parts) if (!part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m));
-    } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
-    else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
+      for (const part of rig.parts) if (part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m), need);
+      ctx.drawImage(mip(rig.base, need).img, -dw / 2, -dh / 2, dw, dh);
+      for (const part of rig.parts) if (!part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m), need);
+    } else if (pose.warp) drawWarped(ctx, mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh, pose.warp);
+    else ctx.drawImage(mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh);
     // 눈 깜빡임 (몸이 물결치면 눈도 같이 따라감)
-    drawEyes(ctx, rig, dw, dh, t, lvl, pose.warp);
-  } else if (pose.warp) drawWarped(ctx, prep.img, -dw / 2, -dh / 2, dw, dh, pose.warp);
-  else ctx.drawImage(prep.img, -dw / 2, -dh / 2, dw, dh);
+    drawEyes(ctx, rig, dw, dh, t, lvl, pose.warp, need);
+  } else if (pose.warp) drawWarped(ctx, mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh, pose.warp);
+  else ctx.drawImage(mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh);
   // 회전 부품 (기본 유모차 바퀴)
   for (const p of prep.parts) {
     const px = -dw / 2 + p.cx * dw;
@@ -244,25 +255,51 @@ export function drawIllustration(
 
   // ── 앞쪽 효과 (효과: 먼지·물결·물방울·하트·바람선 / 반짝임: 별)
   const left = bx + pose.dx - dw / 2;
-  const top = by + pose.dy - dh / 2;
+  const top = by + pose.dy + artCy - artH / 2;
   if (a.effects) {
     if (a.type === 'fly') mirrored(ctx, bx + pose.dx, facing, () => drawWind(ctx, S, left, by + pose.dy, m, k));
-    if (a.type === 'roll') mirrored(ctx, bx + pose.dx, facing, () => drawRollLines(ctx, S, left, by + dh / 2, m, k));
+    if (a.type === 'roll') mirrored(ctx, bx + pose.dx, facing, () => drawRollLines(ctx, S, left, ground, m, k));
     if (a.type === 'float') drawRings(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
     if (a.type === 'swim' || a.type === 'leap') {
       drawWater(ctx, S, bx, by + dh * 0.42, dw, m);
       drawBubbles(ctx, S, bx + pose.dx + f1x(facing) * dw * 0.35, top + dh * 0.2, m);
     }
     if (pose.fx.splash !== undefined) drawSplash(ctx, S, bx + pose.dx + facing * dw * 0.12, by + dh * 0.42 + S * 0.08, pose.fx.splash);
-    if (POP_TYPES.has(a.type)) drawPops(ctx, S, bx + pose.dx, top, dw, m);
-    if (a.type === 'cozy') drawPuffs(ctx, S, bx, top, dw, m);
-    if (pose.fx.thud !== undefined) drawThud(ctx, S, bx, by + dh / 2, dw, pose.fx.thud);
-    if (pose.fx.heart !== undefined) drawHeartPop(ctx, S, bx + pose.dx + dw * 0.3, top + dh * 0.12, pose.fx.heart, a.type === 'cozy' ? 0.6 : 1);
+    if (POP_TYPES.has(a.type)) drawPops(ctx, S, bx + pose.dx + artCx, top, artW, m);
+    if (a.type === 'cozy') drawPuffs(ctx, S, bx + artCx, top, artW, m);
+    if (pose.fx.thud !== undefined) drawThud(ctx, S, bx + artCx, ground, artW, pose.fx.thud);
+    if (pose.fx.heart !== undefined) drawHeartPop(ctx, S, bx + pose.dx + artCx + artW * 0.32, top + artH * 0.06, pose.fx.heart, a.type === 'cozy' ? 0.6 : 1);
   }
   if (a.sparkles) drawStars(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m, pose.sparkle);
 }
 
 type Warp = { axis: 'rows' | 'cols'; amp: number; freq: number; phase: number };
+
+type Img = CanvasImageSource & { width: number; height: number };
+type Mip = { img: Img; qx: number; qy: number };
+const mipCache = new WeakMap<object, HTMLCanvasElement[]>();
+/**
+ * 작게 그릴 때 쓰는 미리 줄여 둔 그림 (원본 768px를 매 프레임 작게 줄이면 휴대폰에서 무거움).
+ * need: 화면에 그려질 가로 픽셀. 반씩 줄인 사본 중 need보다 큰 가장 작은 것을 돌려줌. q = 사본/원본 비율
+ */
+function mip(img: Img, need: number): Mip {
+  let lv = mipCache.get(img);
+  if (!lv) mipCache.set(img, (lv = []));
+  let src: Img = img;
+  for (let i = 0; src.width / 2 >= need * 1.05 && src.width / 2 >= 24; i++) {
+    if (!lv[i]) {
+      const c = document.createElement('canvas');
+      c.width = Math.max(1, Math.round(src.width / 2));
+      c.height = Math.max(1, Math.round(src.height / 2));
+      const g = c.getContext('2d')!;
+      g.imageSmoothingQuality = 'high';
+      g.drawImage(src, 0, 0, c.width, c.height);
+      lv[i] = c;
+    }
+    src = lv[i];
+  }
+  return { img: src, qx: src.width / img.width, qy: src.height / img.height };
+}
 
 /** 몸이 물결칠 때 그림의 한 점(0~1 좌표)이 얼마나 밀리는지 (drawWarped와 같은 식) */
 function warpOffset(x: number, y: number, warp?: Warp): [number, number] {
@@ -354,9 +391,11 @@ function drawRigPart(
   ih: number,
   dw: number,
   dh: number,
-  angle: number
+  angle: number,
+  need: number
 ) {
   const d = part.def;
+  const mp = mip(part.img, need);
   const [x0, y0, x1, y1] = d.box;
   let px = d.pivot[0] * iw, py = d.pivot[1] * ih;
   let ax = (d.tip[0] - d.pivot[0]) * iw, ay = (d.tip[1] - d.pivot[1]) * ih;
@@ -386,13 +425,19 @@ function drawRigPart(
     ctx.rotate(d.bend === 0 ? angle : 0);
     ctx.translate(-ppx, -ppy);
     const bx = x0 * iw, by = y0 * ih, bw = (x1 - x0) * iw, bh = (y1 - y0) * ih;
-    ctx.drawImage(part.img, bx, by, bw, bh, -dw / 2 + bx * kx, -dh / 2 + by * ky, bw * kx, bh * ky);
+    ctx.drawImage(mp.img, bx * mp.qx, by * mp.qy, bw * mp.qx, bh * mp.qy, -dw / 2 + bx * kx, -dh / 2 + by * ky, bw * kx, bh * ky);
     ctx.restore();
     return;
   }
-  // 휘는 방향으로는 촘촘히, 가로질러서는 성기게 나눔
-  const NX = Math.abs(ux) > 0.7 ? 8 : Math.abs(ux) > 0.35 ? 5 : 3;
-  const NY = Math.abs(uy) > 0.7 ? 8 : Math.abs(uy) > 0.35 ? 5 : 3;
+  // 휘는 방향으로는 촘촘히, 가로질러서는 성기게 나눔.
+  // 화면에 작게 보일수록 조각 수를 줄임(조각마다 잘라 그리기라 휴대폰에서 무거움) — 크게 보일 땐 예전처럼 촘촘히
+  const seg = (c: number, px: number) => {
+    const ac = Math.abs(c);
+    const [len, max] = ac > 0.7 ? [16, 8] : ac > 0.35 ? [26, 5] : [56, 3];
+    return Math.max(1, Math.min(max, Math.ceil(px / len)));
+  };
+  const NX = seg(ux, (x1 - x0) * dw);
+  const NY = seg(uy, (y1 - y0) * dh);
   const sx: number[] = [], sy: number[] = [], tx: number[] = [], ty: number[] = [];
   for (let j = 0; j <= NY; j++) {
     for (let i = 0; i <= NX; i++) {
@@ -413,8 +458,8 @@ function drawRigPart(
   for (let j = 0; j < NY; j++) {
     for (let i = 0; i < NX; i++) {
       const a = at(i, j), b = at(i + 1, j), c = at(i, j + 1), e = at(i + 1, j + 1);
-      drawTri(ctx, part.img, sx[a], sy[a], sx[b], sy[b], sx[c], sy[c], tx[a], ty[a], tx[b], ty[b], tx[c], ty[c]);
-      drawTri(ctx, part.img, sx[b], sy[b], sx[e], sy[e], sx[c], sy[c], tx[b], ty[b], tx[e], ty[e], tx[c], ty[c]);
+      drawTri(ctx, mp, sx[a], sy[a], sx[b], sy[b], sx[c], sy[c], tx[a], ty[a], tx[b], ty[b], tx[c], ty[c]);
+      drawTri(ctx, mp, sx[b], sy[b], sx[e], sy[e], sx[c], sy[c], tx[b], ty[b], tx[e], ty[e], tx[c], ty[c]);
     }
   }
 }
@@ -422,7 +467,7 @@ function drawRigPart(
 /** 원본 삼각형(s)을 화면 삼각형(d)으로 옮겨 그리기. 이음새가 보이지 않게 조금 크게 자름 */
 function drawTri(
   ctx: CanvasRenderingContext2D,
-  img: HTMLCanvasElement,
+  mp: Mip,
   sx0: number, sy0: number, sx1: number, sy1: number, sx2: number, sy2: number,
   dx0: number, dy0: number, dx1: number, dy1: number, dx2: number, dy2: number
 ) {
@@ -454,9 +499,11 @@ function drawTri(
   ctx.transform(A, B, C, D, E, F);
   const bx0 = Math.max(0, Math.floor(Math.min(sx0, sx1, sx2)) - 2);
   const by0 = Math.max(0, Math.floor(Math.min(sy0, sy1, sy2)) - 2);
-  const bx1 = Math.min(img.width, Math.ceil(Math.max(sx0, sx1, sx2)) + 2);
-  const by1 = Math.min(img.height, Math.ceil(Math.max(sy0, sy1, sy2)) + 2);
-  if (bx1 > bx0 && by1 > by0) ctx.drawImage(img, bx0, by0, bx1 - bx0, by1 - by0, bx0, by0, bx1 - bx0, by1 - by0);
+  // 원본 좌표 그대로 쓰되, 실제로는 축소본에서 같은 자리를 가져옴
+  const { img, qx, qy } = mp;
+  const bx1 = Math.min(img.width / qx, Math.ceil(Math.max(sx0, sx1, sx2)) + 2);
+  const by1 = Math.min(img.height / qy, Math.ceil(Math.max(sy0, sy1, sy2)) + 2);
+  if (bx1 > bx0 && by1 > by0) ctx.drawImage(img, bx0 * qx, by0 * qy, (bx1 - bx0) * qx, (by1 - by0) * qy, bx0, by0, bx1 - bx0, by1 - by0);
   ctx.restore();
 }
 
@@ -484,17 +531,20 @@ export function blinkAmount(t: number, seed: number, lvl: number): number {
 }
 
 /** 눈 그리기: 감는 만큼 세로로 납작해지고, 거의 감기면 그림체와 같은 색의 곡선(감은 눈) */
-function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number, warp?: Warp) {
+function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number, warp: Warp | undefined, need: number) {
   const c = blinkAmount(t, rig.seed, lvl);
-  const iw = rig.eyeImg.width, ih = rig.eyeImg.height;
+  const eye = mip(rig.eyeImg, need).img;
+  const cover = rig.cover ? mip(rig.cover, need).img : null;
+  const iw = eye.width, ih = eye.height;
   for (const e of rig.eyes) {
     const [ox, oy] = warpOffset(e.cx, e.cy, warp);
     // 원본 그림 위에 그릴 때: 먼저 원래 눈 자리를 얼굴색 덮개로 가림
-    if (rig.cover) {
+    if (cover) {
       const mc = 2.6;
-      const csx = (e.cx - e.rx * mc) * iw, csy = (e.cy - e.ry * mc) * ih;
-      const csw = e.rx * 2 * mc * iw, csh = e.ry * 2 * mc * ih;
-      ctx.drawImage(rig.cover, csx, csy, csw, csh, -dw / 2 + (e.cx - e.rx * mc) * dw + ox, -dh / 2 + (e.cy - e.ry * mc) * dh + oy, e.rx * 2 * mc * dw, e.ry * 2 * mc * dh);
+      const cw = cover.width, chh = cover.height;
+      const csx = (e.cx - e.rx * mc) * cw, csy = (e.cy - e.ry * mc) * chh;
+      const csw = e.rx * 2 * mc * cw, csh = e.ry * 2 * mc * chh;
+      ctx.drawImage(cover, csx, csy, csw, csh, -dw / 2 + (e.cx - e.rx * mc) * dw + ox, -dh / 2 + (e.cy - e.ry * mc) * dh + oy, e.rx * 2 * mc * dw, e.ry * 2 * mc * dh);
     }
     const m = 1.9; // 눈 둘레 번짐까지
     const sx = (e.cx - e.rx * m) * iw, sy = (e.cy - e.ry * m) * ih;
@@ -504,7 +554,7 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
     const open = 1 - c;
     if (open > 0.08) {
       const h = e.ry * 2 * m * dh * open;
-      ctx.drawImage(rig.eyeImg, sx, sy, sw, sh, dx, dcy - h / 2, e.rx * 2 * m * dw, h);
+      ctx.drawImage(eye, sx, sy, sw, sh, dx, dcy - h / 2, e.rx * 2 * m * dw, h);
     }
     if (c > 0.55) {
       ctx.save();
@@ -581,7 +631,8 @@ function drawWarped(
   h: number,
   wp: { axis: 'rows' | 'cols'; amp: number; freq: number; phase: number }
 ) {
-  const N = 28;
+  // 띠 수: 화면에 보이는 크기에 맞춰 (작게 보이면 적게 → 가볍게)
+  const N = Math.max(8, Math.min(28, Math.round((wp.axis === 'rows' ? h : w) / 9)));
   const iw = img.width, ih = img.height;
   for (let i = 0; i < N; i++) {
     const u0 = i / N;

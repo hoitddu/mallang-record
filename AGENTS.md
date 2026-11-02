@@ -98,6 +98,8 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 - **주석과 화면 문구는 한국어**로 씁니다. 화면 문구는 부모가 읽기 쉬운 부드러운 말투(~해요)로 씁니다.
 - 공용 UI는 `src/components/ui.tsx`(TopBar, Chips, Sheet, Toggle, Slider, Notice 등)를 먼저 재사용하세요.
 - 그림 그리기는 `src/lib/render.ts`의 `drawIllustration` / `renderScene`을 재사용하세요. **화면 미리보기와 저장되는 영상이 같은 그리기 코드를 쓰는 것**이 중요합니다.
+- **휴대폰 성능:** 작게 그릴 때는 `render.ts`의 `mip()`(반씩 줄여 둔 사본)을 쓰고, 부위 휘기 조각 수는 화면 크기에 맞춰 줄입니다. 조각마다 `clip`하는 그리기는 휴대폰에서 무거우니 늘리지 마세요. '움직임 한눈에 보기'는 화면에 보이는 줄만 그립니다.
+- 바닥 위치·회전 중심은 `Prepared.bounds`(투명 여백을 뺀 실제 그림 영역, `images.ts`의 `alphaBounds`) 기준입니다.
 - 움직임 신호는 `src/lib/motion.ts`(`MotionProcessor`, `computeTrack`, `frameAt`)를 쓰세요. 동작을 순서대로 이어 붙이는 신호(`aS/aM/aL` = 짧은·중간·긴 간격으로 받아들인 마지막 소리 이후 시간, `bX` = 그 전 소리, `nX` = 횟수, `eX` = 세기, `startT`·`quietT`, 느린 세기 `glide`·`drift`)도 여기서 만듭니다.
 - **몸 전체 움직임**(점프·흔들기 등 대표 동작)은 `src/lib/poses.ts`의 `computePose`에 움직임 방식별로 있습니다. 캐릭터 성격을 지키는 강도·속도 상한은 `GAIN`, 이동 범위 제한은 함수 끝에 있습니다. 같은 시각이면 언제나 같은 자세가 나와야 합니다(무작위 금지).
 - **부위별 움직임**(귀·꼬리·눈 깜빡임)은 `src/lib/rigs.ts`(부위 정의)와 `render.ts`의 `partAngle`·`drawRigPart`·`drawEyes`에 있습니다. 조각 그림은 `scripts/make-rig.py`로 만들고(`python3 scripts/make-rig.py`, 약 1~2분), `src/assets/rig/`의 파일을 손으로 고치지 마세요.

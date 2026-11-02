@@ -141,9 +141,21 @@ export function Motions() {
   const CELL_RATIO = 1.2; // 칸 높이 / 너비 (아래쪽에 이름 자리)
 
   const draw = (ctx: CanvasRenderingContext2D, W: number, H: number, now: number) => {
-    drawBackground(ctx, W, H);
     const cw = W / cols;
     const ch = H / rows;
+    // 화면에 보이는 줄만 그림 (스크롤 밖 칸까지 매 프레임 그리면 휴대폰에서 무거움)
+    const r = ctx.canvas.getBoundingClientRect();
+    const k = r.height > 0 ? H / r.height : 1;
+    const vTop = Math.max(0, -r.top * k);
+    const vBot = Math.min(H, (window.innerHeight - r.top) * k);
+    const row0 = Math.max(0, Math.floor(vTop / ch));
+    const row1 = Math.min(rows - 1, Math.floor(vBot / ch));
+    ctx.save();
+    ctx.beginPath();
+    ctx.rect(0, row0 * ch, W, Math.max(0, (row1 - row0 + 1) * ch));
+    ctx.clip();
+    drawBackground(ctx, W, H);
+    ctx.restore();
 
     // 이번 프레임의 목소리 → 그림별 움직임
     const l = source === 'mic' ? live.current : null;
@@ -177,6 +189,8 @@ export function Motions() {
         m = frameAt(demoTracks.get(p.id) ?? null, tDemo);
       }
       m = { ...m, t: now };
+      // 마이크 분석은 모든 그림에 계속하되, 그리기는 보이는 칸만
+      if (row < row0 || row > row1) return;
 
       ctx.save();
       ctx.beginPath();

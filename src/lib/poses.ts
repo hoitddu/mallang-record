@@ -147,13 +147,18 @@ export function computePose(a: AnimSettings, m: MotionFrame, S: number, facing: 
       break;
     }
     case 'float': {
-      // 둥실(풍선): 조용할 때도 아주 작게 떠 있고, 목소리에 조금 더 떠올랐다가 천천히 내려오며 흔들
-      pose.pivot = { x: 0, y: 0 };
-      pose.dy = Math.sin(t * 1.2 * sp) * S * 0.012 - S * 0.06 * k * drift;
-      pose.dx = Math.sin(t * 0.7 * sp) * S * 0.008;
-      pose.rot = Math.sin(t * 0.9 * sp) * 0.025 + Math.sin(t * 1.6 * sp + 1) * 0.03 * drift;
+      // 둥실(풍선): 조용할 땐 조금 낮은 자리에서 아주 작게 둥실. 목소리가 나면 아래에서 위로 둥실 날아오르고
+      // (길게 말할수록 높이, 하지만 위쪽 한계에서 멈춰 사라지지 않음), 끝나면 천천히 내려오며 흔들
+      const rise = sstep(0, 1, drift * 1.25);
+      pose.pivot = { x: 0, y: -0.5 }; // 끈이 아니라 풍선 쪽이 위로 끌려 올라가는 느낌
+      pose.dy = S * 0.07 - S * 0.23 * k * rise + Math.sin(t * 1.2 * sp) * S * 0.012;
+      pose.dx = Math.sin(t * 0.7 * sp) * S * 0.01 + Math.sin(rise * Math.PI) * S * 0.025;
+      // 올라갈 땐 바람을 받아 살짝 기울고, 내려올 땐 좌우로 흔들
+      pose.rot = Math.sin(t * 0.9 * sp) * 0.025 + Math.sin(t * 1.6 * sp + 1) * 0.04 * rise;
+      pose.sy = 1 + 0.025 * k * clamp(m.glide - drift * 0.5, 0, 1);
+      pose.sx = 1 - 0.012 * k * clamp(m.glide - drift * 0.5, 0, 1);
       pose.shadow = 0.35;
-      pose.lift = clamp(0.5 + drift, 0, 1);
+      pose.lift = clamp(0.35 + rise, 0, 1);
       break;
     }
     case 'fly': {
@@ -316,7 +321,12 @@ export function computePose(a: AnimSettings, m: MotionFrame, S: number, facing: 
       // 짧은 말엔 한 번, 긴 말엔 충분한 간격(0.95초)을 두고 다시
       const o = { crouch: 0.11 / sp, air: 0.5 / sp, land: 0.16, dip: 0.12, stretch: 0.09, squash: 0.1, rebound: 0.05 };
       const H = S * 0.13 * k * (0.6 + 0.4 * m.eL);
-      const h1 = hop(m.aL, o), h0 = hop(m.bL, o);
+      // 소리가 끊기지 않고 길게 이어지면 충분한 간격(P초)을 두고 다시 깡총. 말이 끝난 뒤엔 새로 뛰지 않음
+      const P = Math.max(1.3, o.crouch + o.air + o.land + 0.45);
+      const said = m.aL >= 20 ? 0 : m.quietT > 0 ? Math.max(0, m.aL - m.quietT) : m.aL; // 이번 소리가 이어진 시간
+      const n = m.aL >= 20 ? 0 : Math.floor(said / P);
+      const h1 = hop(m.aL - n * P, o);
+      const h0 = n > 0 ? hop(m.aL - (n - 1) * P, o) : hop(m.bL, o);
       const up = h1.up + h0.up;
       pose.dy = -up * H;
       setSquash((h1.sq + h0.sq) * k);
@@ -412,7 +422,7 @@ export function computePose(a: AnimSettings, m: MotionFrame, S: number, facing: 
 
   // 그림이 그림 칸 밖으로 나가지 않도록 상한
   pose.dx = clamp(pose.dx, -S * 0.15, S * 0.15);
-  pose.dy = clamp(pose.dy, -S * 0.16, S * 0.1);
+  pose.dy = clamp(pose.dy, -S * 0.17, S * 0.1);
   pose.rot = clamp(pose.rot, -0.3, 0.3);
   pose.sx = clamp(pose.sx, 0.88, 1.14);
   pose.sy = clamp(pose.sy, 0.88, 1.14);

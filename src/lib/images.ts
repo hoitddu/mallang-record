@@ -22,6 +22,42 @@ export interface Prepared {
   rig?: PreparedRig;
   /** 그림이 보는 방향 (기본 그림만, 오른쪽 1·왼쪽 -1). 직접 올린 그림은 1 */
   facing?: number;
+  /** 투명 여백을 뺀 실제 그림 영역 (0~1). 바닥 위치·회전 중심을 실제 그림에 맞추는 데 씀 */
+  bounds?: Bounds;
+}
+
+export interface Bounds {
+  x0: number;
+  y0: number;
+  x1: number;
+  y1: number;
+}
+
+/** 투명 여백을 뺀 실제 그림 영역. 투명한 곳이 없는 그림(사진 등)은 전체 */
+export function alphaBounds(c: HTMLCanvasElement): Bounds {
+  const full = { x0: 0, y0: 0, x1: 1, y1: 1 };
+  try {
+    // 계산은 작게 줄여서 (가볍게)
+    const s = Math.min(1, 256 / Math.max(c.width, c.height));
+    const w = Math.max(1, Math.round(c.width * s)), h = Math.max(1, Math.round(c.height * s));
+    const t = makeCanvas(w, h);
+    const g = t.getContext('2d', { willReadFrequently: true })!;
+    g.drawImage(c, 0, 0, w, h);
+    const d = g.getImageData(0, 0, w, h).data;
+    let x0 = w, y0 = h, x1 = -1, y1 = -1;
+    for (let y = 0; y < h; y++)
+      for (let x = 0; x < w; x++)
+        if (d[(y * w + x) * 4 + 3] > 40) {
+          if (x < x0) x0 = x;
+          if (x > x1) x1 = x;
+          if (y < y0) y0 = y;
+          if (y > y1) y1 = y;
+        }
+    if (x1 < 0) return full;
+    return { x0: x0 / w, y0: y0 / h, x1: (x1 + 1) / w, y1: (y1 + 1) / h };
+  } catch {
+    return full;
+  }
 }
 
 export interface PreparedRig {
@@ -152,7 +188,7 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
   if (src.image) {
     let bp = blobCache.get(src.image);
     if (!bp) {
-      bp = rasterBlob(src.image).then((img) => ({ img, w: img.width, h: img.height, parts: [], builtin: false }));
+      bp = rasterBlob(src.image).then((img) => ({ img, w: img.width, h: img.height, parts: [], builtin: false, bounds: alphaBounds(img) }));
       blobCache.set(src.image, bp);
     }
     return bp;
@@ -163,7 +199,7 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
     p = (async (): Promise<Prepared> => {
       if (src.image) {
         const img = await rasterBlob(src.image);
-        return { img, w: img.width, h: img.height, parts: [], builtin: false };
+        return { img, w: img.width, h: img.height, parts: [], builtin: false, bounds: alphaBounds(img) };
       }
       const def = src.builtinKey ? BUILTIN_MAP[src.builtinKey] : undefined;
       if (!def) {
@@ -174,7 +210,7 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
       const c = makeCanvas(im.naturalWidth, im.naturalHeight);
       c.getContext('2d')!.drawImage(im, 0, 0);
       const rig = await prepareRig(def.key);
-      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig, facing: def.facing };
+      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig, facing: def.facing, bounds: alphaBounds(c) };
     })();
     cache.set(key, p);
     p.catch(() => cache.delete(key));
