@@ -98,7 +98,8 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 - **주석과 화면 문구는 한국어**로 씁니다. 화면 문구는 부모가 읽기 쉬운 부드러운 말투(~해요)로 씁니다.
 - 공용 UI는 `src/components/ui.tsx`(TopBar, Chips, Sheet, Toggle, Slider, Notice 등)를 먼저 재사용하세요.
 - 그림 그리기는 `src/lib/render.ts`의 `drawIllustration` / `renderScene`을 재사용하세요. **화면 미리보기와 저장되는 영상이 같은 그리기 코드를 쓰는 것**이 중요합니다.
-- 움직임 신호는 `src/lib/motion.ts`(`MotionProcessor`, `computeTrack`, `frameAt`)를 쓰세요.
+- 움직임 신호는 `src/lib/motion.ts`(`MotionProcessor`, `computeTrack`, `frameAt`)를 쓰세요. 동작을 순서대로 이어 붙이는 신호(`aS/aM/aL` = 짧은·중간·긴 간격으로 받아들인 마지막 소리 이후 시간, `bX` = 그 전 소리, `nX` = 횟수, `eX` = 세기, `startT`·`quietT`, 느린 세기 `glide`·`drift`)도 여기서 만듭니다.
+- **몸 전체 움직임**(점프·흔들기 등 대표 동작)은 `src/lib/poses.ts`의 `computePose`에 움직임 방식별로 있습니다. 캐릭터 성격을 지키는 강도·속도 상한은 `GAIN`, 이동 범위 제한은 함수 끝에 있습니다. 같은 시각이면 언제나 같은 자세가 나와야 합니다(무작위 금지).
 - **부위별 움직임**(귀·꼬리·눈 깜빡임)은 `src/lib/rigs.ts`(부위 정의)와 `render.ts`의 `partAngle`·`drawRigPart`·`drawEyes`에 있습니다. 조각 그림은 `scripts/make-rig.py`로 만들고(`python3 scripts/make-rig.py`, 약 1~2분), `src/assets/rig/`의 파일을 손으로 고치지 마세요.
 - **새 기본 그림을 넣을 때**는 `make-rig.py`의 `EYES_ONLY`에 눈 위치(0~1 좌표)를 추가하고 스크립트를 다시 돌리면 눈 깜빡임이 붙습니다. 귀·꼬리 같은 부위를 움직이려면 같은 파일의 `main()`과 `src/lib/rigs.ts`의 `PARTS`에 부위를 추가하세요.
 - 화면 이동은 `src/store.tsx`의 `Route`에 이름을 추가하고 `src/App.tsx`에서 연결합니다.

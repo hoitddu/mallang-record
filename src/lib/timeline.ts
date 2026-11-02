@@ -1,6 +1,6 @@
 import { concatBuffers } from './audio';
 import type { MotionFrame, MotionTrack } from './motion';
-import { frameAt } from './motion';
+import { advanceFrame, frameAt } from './motion';
 import type { SceneInfo } from './render';
 
 export interface TimelineItem {
@@ -47,11 +47,7 @@ export function itemFrame(it: TimelineItem, o: number, t: number): MotionFrame {
   const local = it.trimStart + (t - o);
   const end = it.trimEnd;
   if (local < it.trimStart) return { ...frameAt(null, 0), t: local };
-  if (local > end) {
-    const f = frameAt(it.track, end);
-    const d = Math.exp(-(local - end) / 0.15);
-    return { ...f, lvl: f.lvl * d, spring: f.spring * d, pulse: f.pulse * d, speak: f.speak * d, t: local };
-  }
+  if (local > end) return advanceFrame(frameAt(it.track, end), local - end, local);
   return frameAt(it.track, local);
 }
 

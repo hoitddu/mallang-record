@@ -1,6 +1,7 @@
 import type { Prepared, PreparedRig } from './images';
 import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
+import { computePose } from './poses';
 import type { AnimSettings, CaptionSettings, ImgTransform } from './types';
 
 export interface SceneInfo {
@@ -147,17 +148,6 @@ function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: numbe
   ctx.closePath();
 }
 
-interface Pose {
-  dx: number;
-  dy: number;
-  rot: number;
-  sx: number;
-  sy: number;
-  anchorBottom: boolean;
-  warp?: { axis: 'rows' | 'cols'; amp: number; freq: number; phase: number };
-  shadow: number; // 0이면 그림자 없음, 1 기본
-  shadowScale: number;
-}
 
 /**
  * 그림 한 장 그리기. 원본 그림을 변형(늘이기·기울이기·이동)만 하며
@@ -191,293 +181,36 @@ export function drawIllustration(
   // 자동 테스트용: 마지막 움직임 값 (화면에는 영향 없음)
   (globalThis as any).__mallangMotion = m;
 
-  const pose: Pose = { dx: 0, dy: 0, rot: 0, sx: 1, sy: 1, anchorBottom: false, shadow: 1, shadowScale: 1 };
-
-  switch (a.type) {
-    case 'squish': {
-      // 말랑: 목소리가 커지면 살짝 납작 → 탄성 있게 복원 (기본 강도에서 약 96~104%)
-      const sq = 0.045 * k * spr;
-      const wob = pulse * Math.sin(t * 22 * sp) * 0.018 * k;
-      const idle = 0.005 * Math.sin(t * 2.2 * sp) * (1 - speak);
-      pose.sx = 1 + sq * 0.9 + wob + idle;
-      pose.sy = 1 - sq - wob - idle;
-      pose.anchorBottom = true;
-      pose.rot = Math.sin(m.phase * 0.5) * 0.02 * k * speak;
-      break;
-    }
-    case 'hop': {
-      // 콩콩: 소리가 툭 커질 때마다 작은 점프 + 소리 크기만큼 살짝 떠오름
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const h = S * 0.06 * k * (0.55 * clamp(spr, 0, 1.2) + 0.9 * arc);
-      pose.dy = -h;
-      pose.sy = 1 + 0.03 * k * arc - 0.02 * k * clamp(spr - arc, 0, 1);
-      pose.sx = 2 - pose.sy;
-      pose.rot = Math.sin(m.phase * 0.5) * 0.035 * k * speak;
-      pose.anchorBottom = true;
-      pose.shadowScale = 1 - clamp(h / (S * 0.3), 0, 0.5);
-      break;
-    }
-    case 'float': {
-      // 둥실: 늘 아주 천천히 떠 있고, 목소리에 맞춰 떠오르며 흔들림
-      pose.dy = Math.sin(t * 1.3 * sp) * S * 0.012 - S * 0.05 * k * clamp(spr, -0.2, 1.2);
-      pose.rot = Math.sin(m.phase * 0.6) * 0.06 * k * speak + Math.sin(t * 0.9 * sp) * 0.012;
-      pose.dx = Math.sin(m.phase * 0.3) * S * 0.01 * k * speak;
-      pose.shadow = 0.6;
-      pose.shadowScale = 0.8 + pose.dy / (S * 0.6);
-      break;
-    }
-    case 'fly': {
-      // 날아가기: 목소리에 맞춰 앞으로 나아가며 기수를 들어 올림
-      pose.dx = S * 0.065 * k * spr;
-      pose.dy = -S * 0.035 * k * spr + Math.sin(t * 2.2 * sp) * S * 0.007 * (0.4 + speak);
-      pose.rot = -0.085 * k * spr + Math.sin(m.phase * 0.7) * 0.02 * speak;
-      pose.shadow = 0;
-      break;
-    }
-    case 'swim': {
-      // 물결: 몸이 물결처럼 휘며 위아래로 헤엄
-      pose.dx = S * 0.03 * k * spr;
-      pose.dy = Math.sin(m.phase - 0.8) * S * 0.035 * k * speak - S * 0.025 * k * spr;
-      pose.rot = Math.sin(m.phase) * 0.1 * k * (0.15 + speak);
-      pose.warp = { axis: 'cols', amp: S * (0.004 + 0.02 * k * lvl), freq: 1.1, phase: m.phase * 1.4 };
-      pose.shadow = 0;
-      break;
-    }
-    case 'cozy': {
-      // 포근: 숨 쉬듯 부풀었다 줄어듦 + 모서리가 살랑
-      const br = 0.012 * Math.sin(t * 1.6 * sp) + 0.05 * k * clamp(spr, -0.2, 1.2);
-      pose.sx = 1 + br * 0.8;
-      pose.sy = 1 + br;
-      pose.anchorBottom = true;
-      pose.warp = { axis: 'rows', amp: S * (0.003 + 0.016 * k * lvl), freq: 1.2, phase: t * 3 * sp + m.phase };
-      break;
-    }
-    case 'roll': {
-      // 굴러가기: 말할 때 살짝 앞으로, 끝나면 제자리
-      pose.dx = S * 0.08 * k * spr;
-      pose.dy = -Math.abs(Math.sin(m.phase * 1.5)) * S * 0.012 * k * speak;
-      pose.rot = -0.02 * k * spr;
-      pose.anchorBottom = true;
-      break;
-    }
-
-    // ───────── 캐릭터 움직임 (그림마다 성격에 맞춘 움직임) ─────────
-    case 'bounce': {
-      // 통통(사과): 공처럼 튀어 오르고, 바닥에 닿을 때 납작하게 찌그러짐
-      const b = Math.abs(Math.sin(m.phase * 0.9)) * speak;
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const contact = Math.pow(1 - Math.abs(Math.sin(m.phase * 0.9)), 6) * speak;
-      const h = S * 0.075 * k * (0.75 * b + 0.5 * arc);
-      pose.dy = -h;
-      pose.sy = 1 - 0.09 * k * contact + 0.03 * k * b;
-      pose.sx = 1 + 0.08 * k * contact - 0.02 * k * b;
-      pose.anchorBottom = true;
-      pose.shadowScale = 1 - clamp(h / (S * 0.25), 0, 0.55);
-      break;
-    }
-    case 'jelly': {
-      // 탱글(귤·포도): 젤리처럼 가로세로가 번갈아 탱글탱글 떨림
-      const amp = Math.min(0.11, 0.075 * k * (1.0 * pulse + 0.55 * clamp(spr, 0, 1.2) + 0.25 * speak));
-      const osc = Math.sin(t * 16 * sp) * amp;
-      const idle = 0.006 * Math.sin(t * 2.4 * sp) * (1 - speak);
-      pose.sx = 1 + osc + idle;
-      pose.sy = 1 - osc - idle;
-      pose.anchorBottom = true;
-      pose.dy = -Math.abs(osc) * S * 0.25;
-      pose.warp = { axis: 'rows', amp: S * 0.016 * k * lvl, freq: 1.5, phase: t * 9 * sp };
-      break;
-    }
-    case 'heavy': {
-      // 묵직(수박): 무거워서 천천히 좌우로 흔들리고, 소리에 쿵 하고 눌림
-      const th = Math.sin(m.phase * 0.45) * 0.07 * k * speak;
-      pose.rot = th;
-      pose.dy = -Math.abs(Math.sin(th)) * S * 0.18;
-      pose.sy = 1 - 0.05 * k * clamp(spr, 0, 1.2) - 0.03 * k * pulse;
-      pose.sx = 1 + 0.045 * k * clamp(spr, 0, 1.2) + 0.03 * k * pulse;
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'sway': {
-      // 살랑춤(바나나): 아래를 축으로 좌우로 흔들흔들 춤추기
-      const sw = Math.sin(m.phase * 0.6);
-      pose.rot = sw * 0.13 * k * speak + Math.sin(t * 1.8 * sp) * 0.015;
-      pose.dx = sw * S * 0.025 * k * speak;
-      pose.sy = 1 + 0.04 * k * clamp(spr, 0, 1.2);
-      pose.sx = 1 - 0.02 * k * clamp(spr, 0, 1.2);
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'wobbly': {
-      // 오뚝이(가지): 소리만큼 크게 기우뚱했다가 되돌아오기
-      const amp = 0.16 * k * clamp(spr, 0, 1.2) + 0.012;
-      pose.rot = Math.sin(t * 4.4 * sp) * amp;
-      pose.sy = 1 - 0.02 * k * pulse;
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'sprout': {
-      // 쑥쑥(당근): 땅에서 쑥 뽑히듯 길쭉하게 솟아오름, 잎이 살랑
-      const up = clamp(spr, -0.1, 1.2);
-      pose.dy = -S * 0.09 * k * up;
-      pose.sy = 1 + 0.08 * k * up - 0.04 * k * pulse;
-      pose.sx = 1 - 0.045 * k * up + 0.03 * k * pulse;
-      pose.rot = Math.sin(m.phase * 0.7) * 0.03 * k * speak;
-      pose.anchorBottom = true;
-      pose.warp = { axis: 'rows', amp: S * (0.002 + 0.01 * k * lvl), freq: 0.9, phase: t * 6 * sp };
-      pose.shadowScale = 1 - clamp(up * 0.35, 0, 0.4);
-      break;
-    }
-    case 'popcorn': {
-      // 톡톡(옥수수): 팝콘 튀듯 짧게 톡톡 뛰며 바르르 떨림
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const jit = lvl * k;
-      pose.dx = (Math.sin(t * 47) + Math.sin(t * 31)) * S * 0.005 * jit;
-      pose.dy = -S * 0.06 * k * arc - S * 0.012 * k * clamp(spr, 0, 1.2);
-      pose.rot = Math.sin(t * 39) * 0.035 * jit;
-      pose.sy = 1 + 0.03 * k * arc;
-      pose.sx = 1 - 0.02 * k * arc;
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'heartbeat': {
-      // 두근(딸기): 하트처럼 "두-근" 박자로 커졌다 작아짐
-      const beat = Math.pow(Math.max(0, Math.sin(m.phase * 1.1)), 8) + 0.6 * Math.pow(Math.max(0, Math.sin(m.phase * 1.1 - 0.9)), 8);
-      const sc = 1 + 0.07 * k * pulse + 0.035 * k * clamp(spr, 0, 1.2) + 0.05 * k * beat * speak + 0.006 * Math.sin(t * 2 * sp);
-      pose.sx = sc;
-      pose.sy = sc;
-      pose.rot = Math.sin(m.phase * 0.4) * 0.03 * k * speak;
-      break;
-    }
-    case 'tumble': {
-      // 데굴(도토리): 좌우로 데굴데굴 구르듯 기울며 움직임
-      const r = Math.sin(m.phase * 0.7) * 0.22 * k * speak;
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      pose.rot = r;
-      pose.dx = r * S * 0.32;
-      pose.dy = -S * 0.035 * k * arc;
-      break;
-    }
-    case 'bunny': {
-      // 깡총(토끼): 높이 깡총 뛰고, 뛸 때 길쭉 → 착지할 때 납작
-      const hp = Math.max(0, Math.sin(m.phase * 0.8));
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const contact = Math.pow(1 - hp, 5) * speak;
-      const h = S * 0.12 * k * (0.8 * hp * speak + 0.5 * arc);
-      pose.dy = -h;
-      pose.sy = 1 + 0.07 * k * hp * speak - 0.07 * k * contact;
-      pose.sx = 1 - 0.04 * k * hp * speak + 0.06 * k * contact;
-      pose.rot = -0.05 * k * hp * speak;
-      pose.anchorBottom = true;
-      pose.shadowScale = 1 - clamp(h / (S * 0.25), 0, 0.55);
-      break;
-    }
-    case 'waddle': {
-      // 뒤뚱(곰): 양발로 번갈아 디디며 좌우로 뒤뚱뒤뚱
-      const th = Math.sin(m.phase * 0.55) * 0.1 * k * (0.15 + 0.85 * speak);
-      pose.rot = th;
-      pose.dy = -Math.abs(Math.sin(th)) * S * 0.22;
-      pose.dx = Math.sin(m.phase * 0.55) * S * 0.015 * k * speak;
-      pose.sy = 1 - 0.03 * k * clamp(spr, 0, 1.2);
-      pose.sx = 1 + 0.03 * k * clamp(spr, 0, 1.2);
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'stretch': {
-      // 기지개(고양이): 몸을 위로 쭉 늘이고, 느긋하게 기울었다 돌아옴
-      const st = clamp(spr, -0.1, 1.2);
-      pose.sy = 1 + 0.08 * k * st + 0.008 * Math.sin(t * 1.5 * sp);
-      pose.sx = 1 - 0.04 * k * st;
-      pose.rot = Math.sin(m.phase * 0.35) * 0.06 * k * speak;
-      pose.anchorBottom = true;
-      pose.warp = { axis: 'rows', amp: S * (0.002 + 0.008 * k * lvl), freq: 0.8, phase: t * 4 * sp };
-      break;
-    }
-    case 'wag': {
-      // 신나(강아지): 신나서 몸을 빠르게 흔들고 살짝살짝 뜀
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const amp = 0.08 * k * (0.35 * speak + 0.65 * lvl) + 0.012;
-      pose.rot = Math.sin(t * 17 * sp) * amp;
-      pose.dy = -S * 0.05 * k * arc - S * 0.02 * k * clamp(spr, 0, 1.2);
-      pose.sy = 1 + 0.025 * k * arc;
-      pose.sx = 1 - 0.015 * k * arc;
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'nod': {
-      // 끄덕(소): 얼굴 쪽으로 기울며 느릿하게 고개를 끄덕
-      pose.rot = -0.08 * k * clamp(spr, 0, 1.2) + Math.sin(m.phase * 0.5) * 0.045 * k * speak;
-      pose.sy = 1 - 0.025 * k * clamp(spr, 0, 1.2);
-      pose.sx = 1 + 0.015 * k * clamp(spr, 0, 1.2);
-      pose.dy = Math.sin(t * 1.2 * sp) * S * 0.003;
-      pose.anchorBottom = true;
-      break;
-    }
-    case 'scurry': {
-      // 쪼르르(다람쥐): 작고 빠르게 콩콩, 고개를 갸웃갸웃
-      const hp = Math.max(0, Math.sin(m.phase * 1.7));
-      const arc = pulse > 0.01 ? Math.sin(Math.PI * (1 - pulse)) : 0;
-      const h = S * 0.045 * k * (hp * speak + 0.6 * arc);
-      pose.dy = -h;
-      pose.rot = Math.sin(m.phase * 0.9) * 0.07 * k * speak;
-      pose.dx = Math.sin(t * 29) * S * 0.003 * k * lvl;
-      pose.sy = 1 + 0.03 * k * hp * speak;
-      pose.sx = 1 - 0.02 * k * hp * speak;
-      pose.anchorBottom = true;
-      pose.shadowScale = 1 - clamp(h / (S * 0.25), 0, 0.4);
-      break;
-    }
-    case 'leap': {
-      // 첨벙(돌고래): 물 위로 뛰어올라 오를 땐 머리를 들고, 내려올 땐 숙임
-      const j = m.phase * 0.38;
-      const u = Math.sin(j);
-      pose.dy = -S * 0.13 * k * speak * Math.max(0, u) - S * 0.03 * k * clamp(spr, 0, 1.2);
-      pose.rot = -Math.cos(j) * 0.22 * k * speak * (u > 0 ? 1 : 0.3);
-      pose.dx = S * 0.03 * k * clamp(spr, 0, 1.2);
-      pose.warp = { axis: 'cols', amp: S * (0.003 + 0.012 * k * lvl), freq: 1, phase: m.phase * 1.2 };
-      pose.shadow = 0;
-      break;
-    }
-    case 'rock': {
-      // 흔들(달): 요람처럼 흔들흔들, 목소리에 살짝 떠오름
-      pose.rot = Math.sin(t * 1.3 * sp) * 0.035 + Math.sin(m.phase * 0.5) * 0.15 * k * speak;
-      pose.dy = -S * 0.035 * k * clamp(spr, 0, 1.2) + Math.sin(t * 1.1 * sp) * S * 0.006;
-      pose.anchorBottom = true;
-      pose.shadow = 0.5;
-      break;
-    }
-  }
-
-  // 최대 이동 범위 제한
-  pose.dx = clamp(pose.dx, -S * 0.16, S * 0.16);
-  pose.dy = clamp(pose.dy, -S * 0.16, S * 0.12);
-  pose.rot = clamp(pose.rot, -0.3, 0.3);
+  // 캐릭터별 몸 움직임 (poses.ts). facing: 그림이 보는 방향(오른쪽 1, 왼쪽 -1)
+  const facing = prep.facing ?? 1;
+  const pose = computePose(a, m, S, facing);
 
   // ── 뒤쪽 효과
-  if (a.effects && a.type === 'fly') drawClouds(ctx, S, cx, cy, m, k);
+  if (a.effects && a.type === 'fly') mirrored(ctx, cx, facing, () => drawClouds(ctx, S, cx, cy, m, k));
 
-  // ── 바닥 그림자
+  // ── 바닥 그림자: 떠오를수록 작고 옅게, 착지하면 넓고 진하게
   if (pose.shadow > 0) {
+    const lift = clamp(pose.lift, 0, 1);
+    const sc = 1 - 0.45 * lift;
     ctx.save();
-    ctx.globalAlpha *= pose.shadow;
+    ctx.globalAlpha *= pose.shadow * (1 - 0.5 * lift);
     ctx.fillStyle = COLORS.shadow;
     ctx.beginPath();
-    const sw = dw * 0.36 * clamp(pose.shadowScale, 0.4, 1.2) * (pose.sx || 1);
-    ctx.ellipse(bx + pose.dx * 0.8, by + dh / 2 + S * 0.025, sw, S * 0.028 * clamp(pose.shadowScale, 0.4, 1.2), 0, 0, Math.PI * 2);
+    const sw = dw * 0.36 * sc * (pose.sx || 1);
+    ctx.ellipse(bx + pose.dx * 0.8, by + dh / 2 + S * 0.025, sw, S * 0.028 * sc, 0, 0, Math.PI * 2);
     ctx.fill();
     ctx.restore();
   }
 
   // ── 그림
   ctx.save();
-  if (pose.anchorBottom) {
-    ctx.translate(bx + pose.dx, by + dh / 2 + pose.dy);
+  {
+    // 회전·크기 변화의 중심: 아래(착지), 위(매달림), 뒤쪽 아래(끄덕) 등 캐릭터마다 다름
+    const pvx = pose.pivot.x * dw, pvy = pose.pivot.y * dh;
+    ctx.translate(bx + pose.dx + pvx, by + pose.dy + pvy);
     ctx.rotate(pose.rot);
     ctx.scale(pose.sx, pose.sy);
-    ctx.translate(0, -dh / 2);
-  } else {
-    ctx.translate(bx + pose.dx, by + pose.dy);
-    ctx.rotate(pose.rot);
-    ctx.scale(pose.sx, pose.sy);
+    ctx.translate(-pvx, -pvy);
   }
   const rig = prep.rig;
   if (rig) {
@@ -509,25 +242,24 @@ export function drawIllustration(
   if (prep.mouth) drawMouth(ctx, prep.mouth, dw, dh, a.mouth !== false, lvl, pulse, pose.warp);
   ctx.restore();
 
-  // ── 앞쪽 효과
+  // ── 앞쪽 효과 (효과: 먼지·물결·물방울·하트·바람선 / 반짝임: 별)
   const left = bx + pose.dx - dw / 2;
   const top = by + pose.dy - dh / 2;
   if (a.effects) {
-    if (a.type === 'fly') drawWind(ctx, S, left, by + pose.dy, m, k);
-    if (a.type === 'roll') drawRollLines(ctx, S, left, by + dh / 2, m, k);
+    if (a.type === 'fly') mirrored(ctx, bx + pose.dx, facing, () => drawWind(ctx, S, left, by + pose.dy, m, k));
+    if (a.type === 'roll') mirrored(ctx, bx + pose.dx, facing, () => drawRollLines(ctx, S, left, by + dh / 2, m, k));
     if (a.type === 'float') drawRings(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
-    if (a.type === 'swim') drawWater(ctx, S, bx, by + dh * 0.42, dw, m);
+    if (a.type === 'swim' || a.type === 'leap') {
+      drawWater(ctx, S, bx, by + dh * 0.42, dw, m);
+      drawBubbles(ctx, S, bx + pose.dx + f1x(facing) * dw * 0.35, top + dh * 0.2, m);
+    }
+    if (pose.fx.splash !== undefined) drawSplash(ctx, S, bx + pose.dx + facing * dw * 0.12, by + dh * 0.42 + S * 0.08, pose.fx.splash);
     if (POP_TYPES.has(a.type)) drawPops(ctx, S, bx + pose.dx, top, dw, m);
     if (a.type === 'cozy') drawPuffs(ctx, S, bx, top, dw, m);
-    if (THUD_TYPES.has(a.type)) drawThud(ctx, S, bx, by + dh / 2, dw, m);
-    if (a.type === 'leap') drawWater(ctx, S, bx, by + dh * 0.42, dw, m);
-    if (a.type === 'rock') drawRings(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
+    if (pose.fx.thud !== undefined) drawThud(ctx, S, bx, by + dh / 2, dw, pose.fx.thud);
+    if (pose.fx.heart !== undefined) drawHeartPop(ctx, S, bx + pose.dx + dw * 0.3, top + dh * 0.12, pose.fx.heart, a.type === 'cozy' ? 0.6 : 1);
   }
-  if (a.sparkles) {
-    if (a.type === 'cozy' || a.type === 'heartbeat') drawHearts(ctx, S, bx, top, dw, m);
-    else if (a.type === 'swim' || a.type === 'leap') drawBubbles(ctx, S, bx + pose.dx + dw * 0.35, top + dh * 0.2, m);
-    else drawStars(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m);
-  }
+  if (a.sparkles) drawStars(ctx, S, bx + pose.dx, by + pose.dy, Math.max(dw, dh), m, pose.sparkle);
 }
 
 type Warp = { axis: 'rows' | 'cols'; amp: number; freq: number; phase: number };
@@ -880,8 +612,8 @@ function star(ctx: CanvasRenderingContext2D, x: number, y: number, r: number) {
   ctx.fill();
 }
 
-function drawStars(ctx: CanvasRenderingContext2D, S: number, cx: number, cy: number, D: number, m: MotionFrame) {
-  const sp = clamp(m.speak, 0, 1);
+function drawStars(ctx: CanvasRenderingContext2D, S: number, cx: number, cy: number, D: number, m: MotionFrame, amount = 1) {
+  const sp = clamp(m.speak, 0, 1) * amount;
   if (sp < 0.02) return;
   ctx.save();
   ctx.fillStyle = COLORS.star;
@@ -893,6 +625,57 @@ function drawStars(ctx: CanvasRenderingContext2D, S: number, cx: number, cy: num
     ctx.globalAlpha = sp * tw * 0.95;
     star(ctx, cx + ux * D * 0.62, cy + uy * D * 0.62, S * (0.018 + 0.02 * m.lvl) * (0.7 + tw * 0.5));
   });
+  ctx.restore();
+}
+
+/** 그림이 왼쪽을 보면 효과(바람선·먼지·구름)도 좌우를 뒤집어 그림 */
+function mirrored(ctx: CanvasRenderingContext2D, cx: number, facing: number, draw: () => void) {
+  if (facing >= 0) return draw();
+  ctx.save();
+  ctx.translate(cx, 0);
+  ctx.scale(-1, 1);
+  ctx.translate(-cx, 0);
+  draw();
+  ctx.restore();
+}
+const f1x = (facing: number) => (facing >= 0 ? 1 : -1);
+
+/** 말을 시작할 때 작은 하트 하나가 떠올랐다 사라짐 (쌓이지 않음). s: 시작 뒤 지난 초 */
+function drawHeartPop(ctx: CanvasRenderingContext2D, S: number, x: number, y: number, s: number, size: number) {
+  const u = clamp(s / 1.1, 0, 1);
+  if (u <= 0 || u >= 1) return;
+  const r = S * 0.03 * size * (0.6 + 0.4 * Math.sin(Math.min(1, u * 3) * Math.PI / 2));
+  const yy = y - u * S * 0.16;
+  ctx.save();
+  ctx.globalAlpha *= Math.sin(Math.PI * u) * 0.9;
+  ctx.fillStyle = COLORS.heart;
+  ctx.beginPath();
+  ctx.moveTo(x, yy + r * 0.9);
+  ctx.bezierCurveTo(x - r * 1.6, yy - r * 0.2, x - r * 0.7, yy - r * 1.4, x, yy - r * 0.5);
+  ctx.bezierCurveTo(x + r * 0.7, yy - r * 1.4, x + r * 1.6, yy - r * 0.2, x, yy + r * 0.9);
+  ctx.fill();
+  ctx.restore();
+}
+
+/** 물에 들어가는 자리에서 물방울이 튀어 오름. p: 0 → 1 */
+function drawSplash(ctx: CanvasRenderingContext2D, S: number, x: number, y: number, p: number) {
+  if (p <= 0 || p >= 1) return;
+  ctx.save();
+  ctx.fillStyle = COLORS.water;
+  ctx.globalAlpha *= 1 - p;
+  const drops = [[-0.9, 1.0], [-0.45, 1.35], [0, 1.5], [0.45, 1.3], [0.9, 0.95]];
+  for (const [vx, vy] of drops) {
+    const tx = x + vx * S * 0.09 * p;
+    const ty = y - (vy * S * 0.16 * p - S * 0.2 * p * p);
+    ctx.beginPath();
+    ctx.arc(tx, ty, S * 0.012 * (1 - p * 0.4), 0, Math.PI * 2);
+    ctx.fill();
+  }
+  ctx.strokeStyle = COLORS.water;
+  ctx.lineWidth = S * 0.01;
+  ctx.beginPath();
+  ctx.ellipse(x, y, S * 0.06 * (0.4 + p), S * 0.012 * (0.4 + p), 0, 0, Math.PI * 2);
+  ctx.stroke();
   ctx.restore();
 }
 
@@ -1047,12 +830,10 @@ function drawWater(ctx: CanvasRenderingContext2D, S: number, cx: number, y0: num
 }
 
 /** 소리가 툭 커질 때 위로 작은 선이 튀는 움직임들 */
-const POP_TYPES = new Set<string>(['hop', 'squish', 'bounce', 'jelly', 'sprout', 'popcorn', 'heartbeat', 'tumble', 'bunny', 'wag', 'scurry', 'sway', 'wobbly', 'stretch']);
-/** 무겁게 쿵 하는 움직임들: 바닥에 먼지가 폴폴 */
-const THUD_TYPES = new Set<string>(['heavy', 'waddle', 'nod']);
+const POP_TYPES = new Set<string>(['hop', 'bounce', 'jelly', 'sprout', 'popcorn', 'tumble', 'bunny', 'wag', 'scurry', 'sway', 'wobbly']);
 
-function drawThud(ctx: CanvasRenderingContext2D, S: number, cx: number, bottom: number, w: number, m: MotionFrame) {
-  const p = clamp(m.pulse, 0, 1);
+/** 묵직하게 착지할 때 바닥 양옆으로 먼지가 폴폴 (p: 1 → 0으로 사라짐) */
+function drawThud(ctx: CanvasRenderingContext2D, S: number, cx: number, bottom: number, w: number, p: number) {
   if (p < 0.04) return;
   ctx.save();
   ctx.fillStyle = '#E3D6C2';

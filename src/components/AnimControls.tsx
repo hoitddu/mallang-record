@@ -26,6 +26,7 @@ export const ANIM_OPTIONS: { v: AnimType; label: string; desc: string; group: 'b
   { v: 'scurry', label: '쪼르르', desc: '작고 빠르게 콩콩, 갸웃갸웃', group: 'character' },
   { v: 'leap', label: '첨벙', desc: '물 위로 뛰어올라 몸을 젖힘', group: 'character' },
   { v: 'rock', label: '흔들', desc: '요람처럼 흔들흔들', group: 'character' },
+  { v: 'hang', label: '대롱', desc: '위를 축으로 송이째 흔들', group: 'character' },
 ];
 
 const GROUPS: { g: 'character' | 'basic'; title: string }[] = [

@@ -4,7 +4,7 @@ export type Category = 'fruit' | 'animal' | 'thing' | 'custom';
 export type AnimType =
   | 'squish' | 'hop' | 'float' | 'fly' | 'swim' | 'cozy' | 'roll'
   | 'bounce' | 'jelly' | 'heavy' | 'sway' | 'wobbly' | 'sprout' | 'popcorn' | 'heartbeat' | 'tumble'
-  | 'bunny' | 'waddle' | 'stretch' | 'wag' | 'nod' | 'scurry' | 'leap' | 'rock';
+  | 'bunny' | 'waddle' | 'stretch' | 'wag' | 'nod' | 'scurry' | 'leap' | 'rock' | 'hang';
 
 export interface AnimSettings {
   type: AnimType;

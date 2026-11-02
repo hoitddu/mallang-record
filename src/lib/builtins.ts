@@ -24,6 +24,8 @@ export interface BuiltinDef {
   anim: AnimType;
   src: string;
   mouth: MouthMeta;
+  /** 그림이 보는 방향: 오른쪽 1, 왼쪽 -1 (앞을 보면 1). 날아가기·굴러가기·첨벙·끄덕의 이동 방향 */
+  facing: 1 | -1;
 }
 
 const ART = import.meta.glob('../assets/art/*.webp', { eager: true, import: 'default' }) as Record<string, string>;
@@ -65,7 +67,7 @@ const LIST: [string, string, Category, AnimType][] = [
   ['carrot', '당근', 'fruit', 'sprout'],
   ['corn', '옥수수', 'fruit', 'popcorn'],
   ['tomato', '토마토', 'fruit', 'squish'],
-  ['grape', '포도', 'fruit', 'jelly'],
+  ['grape', '포도', 'fruit', 'hang'],
   ['acorn', '도토리', 'fruit', 'tumble'],
   ['bear', '곰', 'animal', 'waddle'],
   ['rabbit', '토끼', 'animal', 'bunny'],
@@ -81,7 +83,10 @@ const LIST: [string, string, Category, AnimType][] = [
   ['airplane', '비행기', 'thing', 'fly'],
 ];
 
-export const BUILTINS: BuiltinDef[] = LIST.map(([key, name, category, anim]) => ({ key, name, category, anim, src: art(key), mouth: MOUTH[key] }));
+/** 실제 그림을 보고 정한 방향: 비행기 기수·유모차 앞쪽·소 머리는 왼쪽, 돌고래 머리는 오른쪽 */
+const FACING: Record<string, 1 | -1> = { airplane: -1, stroller: -1, cow: -1, dolphin: 1 };
+
+export const BUILTINS: BuiltinDef[] = LIST.map(([key, name, category, anim]) => ({ key, name, category, anim, src: art(key), mouth: MOUTH[key], facing: FACING[key] ?? 1 }));
 
 export const BUILTIN_MAP: Record<string, BuiltinDef> = Object.fromEntries(BUILTINS.map((b) => [b.key, b]));
 
@@ -103,7 +108,8 @@ const KEYWORDS: [RegExp, AnimType][] = [
   [/수박|호박/, 'heavy'],
   [/바나나/, 'sway'],
   [/옥수수|팝콘/, 'popcorn'],
-  [/귤|포도|젤리|푸딩|오렌지/, 'jelly'],
+  [/포도|체리|송이|열쇠고리|종/, 'hang'],
+  [/귤|젤리|푸딩|오렌지/, 'jelly'],
   [/가지|오뚝이/, 'wobbly'],
   [/도토리|^밤$|구슬/, 'tumble'],
   [/^달$|초승달/, 'rock'],

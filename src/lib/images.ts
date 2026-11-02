@@ -20,6 +20,8 @@ export interface Prepared {
   mouth?: MouthMeta;
   /** 부위별 움직임 (시범 캐릭터만): 바탕·부위·눈 조각 */
   rig?: PreparedRig;
+  /** 그림이 보는 방향 (기본 그림만, 오른쪽 1·왼쪽 -1). 직접 올린 그림은 1 */
+  facing?: number;
 }
 
 export interface PreparedRig {
@@ -172,7 +174,7 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
       const c = makeCanvas(im.naturalWidth, im.naturalHeight);
       c.getContext('2d')!.drawImage(im, 0, 0);
       const rig = await prepareRig(def.key);
-      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig };
+      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig, facing: def.facing };
     })();
     cache.set(key, p);
     p.catch(() => cache.delete(key));
