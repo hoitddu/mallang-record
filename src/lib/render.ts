@@ -24,6 +24,8 @@ export interface SceneInfo {
   /** 자막 글자마다 나타나는 시각(말하는 박자에 맞춤)과 지금 시각 — 있으면 captionReveal 대신 씀 */
   captionTimes?: number[] | null;
   captionT?: number;
+  /** 아이의 실제 눈·입 (녹화한 기록) */
+  face?: FaceDraw | null;
   months?: string;
   /** 0~1 (여러 단어를 이을 때 장면 전환) */
   alpha?: number;
@@ -77,7 +79,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, W: number, H: number,
   ctx.globalAlpha = scene.alpha ?? 1;
   drawTop(ctx, W, H, scene);
   const { S, cx, cy } = layoutBox(W, H);
-  if (scene.prepared) drawIllustration(ctx, S, cx, cy, scene.prepared, scene.transform, scene.anim, m);
+  if (scene.prepared) drawIllustration(ctx, S, cx, cy, scene.prepared, scene.transform, scene.anim, m, scene.face);
   drawBottom(ctx, W, H, scene);
   ctx.restore();
 }

@@ -29,6 +29,9 @@ export interface FaceTune {
   /** 입을 아래로 내리기 (두 눈 사이 거리 대비) */
   mouthDown: number;
 }
+/** 기본 실사 정도: 0 = 그림에 가깝게 (사용자 결정, 2026-11-04) */
+export const FACE_LEVEL_DEFAULT = 0;
+
 // 사용자가 휴대폰에서 직접 맞춘 값 (2026-11-02)
 export const FACE_TUNE_DEFAULT: FaceTune = { level: 0.5, tilt: 4, spread: 1.07, round: 1.4, eyeSize: 0.47, mouthSize: 0.63, mouthDown: 0.2 };
 const TUNE_KEY = 'mallang-face-tune';

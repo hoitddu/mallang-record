@@ -2,7 +2,8 @@ import { concatBuffers } from './audio';
 import type { MotionFrame, MotionTrack } from './motion';
 import { advanceFrame, frameAt } from './motion';
 import { captionTimes, captionShown } from './captionTiming';
-import type { SceneInfo } from './render';
+import type { FacePlayer } from './faceTrack';
+import type { FaceDraw, SceneInfo } from './render';
 
 export interface TimelineItem {
   scene: SceneInfo;
@@ -10,6 +11,16 @@ export interface TimelineItem {
   buf: AudioBuffer;
   trimStart: number;
   trimEnd: number;
+  /** 아이 눈·입 조각 (녹화한 기록만) */
+  face?: FacePlayer | null;
+}
+
+/** 기록 i의 눈·입: 재생 중이면 그 시각, 아니면 말을 시작한 때(눈 뜨고 있는 장면) */
+export function itemFace(it: TimelineItem, local?: number): FaceDraw | null {
+  if (!it.face) return null;
+  const rest = it.track.firstVoice >= 0 ? it.track.firstVoice : it.trimStart;
+  const t = local === undefined ? rest : Math.max(it.trimStart, Math.min(it.trimEnd, local));
+  return it.face.at(t);
 }
 
 export interface Timeline {
@@ -93,5 +104,5 @@ export function sceneAt(tl: Timeline, t: number): { scene: SceneInfo; frame: Mot
   const captionReveal = captionShown(captionT, captionTimes);
   const winStart = i === 0 ? 0 : o - tl.gap / 2;
   const alpha = i === 0 ? 1 : Math.min(1, (t - winStart) / 0.25);
-  return { scene: { ...it.scene, captionReveal, captionTimes, captionT, alpha }, frame };
+  return { scene: { ...it.scene, captionReveal, captionTimes, captionT, alpha, face: itemFace(it, captionT) }, frame };
 }
