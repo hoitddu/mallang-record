@@ -22,6 +22,8 @@ export interface Prepared {
   rig?: PreparedRig;
   /** 그림이 보는 방향 (기본 그림만, 오른쪽 1·왼쪽 -1). 직접 올린 그림은 1 */
   facing?: number;
+  /** 옆모습 그림의 아이 눈·입 자리 */
+  faceSpots?: import('./builtins').FaceSpots;
   /** 투명 여백을 뺀 실제 그림 영역 (0~1). 바닥 위치·회전 중심을 실제 그림에 맞추는 데 씀 */
   bounds?: Bounds;
 }
@@ -210,7 +212,7 @@ export function prepare(src: { id: string; builtinKey?: string; image?: Blob; up
       const c = makeCanvas(im.naturalWidth, im.naturalHeight);
       c.getContext('2d')!.drawImage(im, 0, 0);
       const rig = await prepareRig(def.key);
-      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig, facing: def.facing, bounds: alphaBounds(c) };
+      return { img: c, w: c.width, h: c.height, parts: [], builtin: true, mouth: def.mouth, rig, facing: def.facing, faceSpots: def.faceSpots, bounds: alphaBounds(c) };
     })();
     cache.set(key, p);
     p.catch(() => cache.delete(key));
