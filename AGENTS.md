@@ -125,7 +125,6 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 
 - 1단계(시안, 끝): 설정 → 실험 기능 → **얼굴 실험실**. 사용자가 실사 정도 "그림에 가깝게"(`FACE_LEVEL_DEFAULT = 0`)와 눈·입 모양(`FACE_TUNE_DEFAULT`)을 정함.
 - 2~4단계(끝, 사용자 확인): 녹음 화면에서 "아이 눈·입도 함께 담기"(설정 `faceCam`, 기본 켜짐, 기본 그림만) → 녹음 버튼을 누르면 앞 카메라를 켜고 실시간으로 붙임 → 카메라 영상은 녹화하지 않고 그림체로 바꾼 눈·입 조각만 초당 15장면 모아 `Clip.face`(`FaceRecord`: 조각 그림판 WebP + 장면 시각)로 저장 → 미리보기·영상·그림책이 `FacePlayer`로 같은 시각의 조각을 꺼내 씀(`src/lib/faceTrack.ts`, `timeline.ts` `itemFace`).
-- 옆모습이라 눈이 하나뿐인 그림(돌고래)은 `builtins.ts` `FACE_SPOTS`에 두 눈·입 자리를 정해 정면 얼굴처럼 붙입니다. 새 옆모습 그림을 넣으면 여기에 자리를 추가하세요.
 - 남은 단계: 갤러리 영상에서 눈·입 가져오기, 직접 올린 그림의 눈·입 자리 정하기, 편집 화면에서 그림을 바꿨을 때 눈·입 둘레 색 다시 맞추기(지금은 녹음할 때 그림 색으로 굳음).
 - 코드: `src/lib/face.ts`(인식 엔진 불러오기 `loadFaceLandmarker`, 떨림 거르기 `LandmarkSmoother`, 오리기·그림체 `extractPatches`, 캐릭터 얼굴색 `artSkinColors`), `render.ts`의 `drawFaceParts`(`drawIllustration`의 마지막 인자 `face`), 화면 `src/screens/FaceLab.tsx`.
 

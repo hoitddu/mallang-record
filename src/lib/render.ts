@@ -634,13 +634,7 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
  * 크기는 캐릭터 두 눈 사이 거리에 맞춰 사람 얼굴 비율로(눈 너비 ≈ 눈 사이의 절반, 입 ≈ 눈 사이의 0.85배)
  */
 function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number, dh: number, fp: FacePatches, alpha: number, warp?: Warp) {
-  // 옆모습(눈 하나) 그림은 따로 정한 자리에 정면 얼굴처럼 두 눈을 붙임
-  const fs = prep.faceSpots;
-  const eyes = fs
-    ? fs.eyes.map(([cx, cy]) => ({ cx, cy, rx: 0.02, ry: 0.02 }))
-    : prep.rig
-      ? [...prep.rig.eyes].sort((p, q) => p.cx - q.cx)
-      : [];
+  const eyes = prep.rig ? [...prep.rig.eyes].sort((p, q) => p.cx - q.cx) : [];
   const two = eyes.length >= 2;
   const e0 = eyes[0], e1 = eyes[eyes.length - 1];
   // 캐릭터 얼굴의 기울기: 그림 속 두 눈을 이은 선 (도토리처럼 비스듬히 그려진 얼굴은 눈·입도 같이 기울임)
@@ -674,8 +668,7 @@ function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number
     ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph);
     ctx.restore();
   });
-  const mt0 = prep.mouth;
-  const mt = mt0 && fs ? { ...mt0, x: fs.mouth[0], y: fs.mouth[1] } : mt0;
+  const mt = prep.mouth;
   if (mt) {
     const [ox, oy] = warpOffset(mt.x, mt.y, warp);
     const vis = T.realSize && fp.ratio && gap ? gap * fp.ratio.mouth : gap ? Math.max(gap * T.mouthSize, mt.w * dw * 1.2) : mt.w * dw * 1.6;

@@ -26,8 +26,6 @@ export interface BuiltinDef {
   mouth: MouthMeta;
   /** 그림이 보는 방향: 오른쪽 1, 왼쪽 -1 (앞을 보면 1). 날아가기·굴러가기·첨벙·끄덕의 이동 방향 */
   facing: 1 | -1;
-  /** 아이 눈·입을 붙일 자리 (옆모습이라 눈이 하나뿐인 그림만, 0~1 좌표) */
-  faceSpots?: FaceSpots;
 }
 
 const ART = import.meta.glob('../assets/art/*.webp', { eager: true, import: 'default' }) as Record<string, string>;
@@ -88,16 +86,7 @@ const LIST: [string, string, Category, AnimType][] = [
 /** 실제 그림을 보고 정한 방향: 비행기 기수·유모차 앞쪽·소 머리는 왼쪽, 돌고래 머리는 오른쪽 */
 const FACING: Record<string, 1 | -1> = { airplane: -1, stroller: -1, cow: -1, dolphin: 1 };
 
-/** 옆모습이라 눈이 하나뿐인 그림: 아이 두 눈·입을 머리 위 정면 얼굴처럼 붙일 자리 */
-export interface FaceSpots {
-  eyes: [[number, number], [number, number]];
-  mouth: [number, number];
-}
-const FACE_SPOTS: Record<string, FaceSpots> = {
-  dolphin: { eyes: [[0.705, 0.455], [0.815, 0.455]], mouth: [0.762, 0.535] },
-};
-
-export const BUILTINS: BuiltinDef[] = LIST.map(([key, name, category, anim]) => ({ key, name, category, anim, src: art(key), mouth: MOUTH[key], facing: FACING[key] ?? 1, faceSpots: FACE_SPOTS[key] }));
+export const BUILTINS: BuiltinDef[] = LIST.map(([key, name, category, anim]) => ({ key, name, category, anim, src: art(key), mouth: MOUTH[key], facing: FACING[key] ?? 1 }));
 
 export const BUILTIN_MAP: Record<string, BuiltinDef> = Object.fromEntries(BUILTINS.map((b) => [b.key, b]));
 
