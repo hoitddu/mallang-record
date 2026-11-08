@@ -35,6 +35,7 @@ export class FaceRecorder {
   private pending: Promise<Blob>[] = [];
   private times: number[] = [];
   private cells: number[] = [];
+  private ratios: number[] = [];
   private nCells = 0;
   constructor(private level: number) {}
 
@@ -45,8 +46,10 @@ export class FaceRecorder {
     this.times.push(t);
     if (!p) {
       this.cells.push(-1);
+      this.ratios.push(0, 0);
       return;
     }
+    this.ratios.push(+(p.ratio?.eye ?? 0).toFixed(3), +(p.ratio?.mouth ?? 0).toFixed(3));
     if (!this.sheet) {
       this.sheet = mk(CELL_W * COLS, CELL_H * ROWS);
       this.used = 0;
@@ -78,7 +81,7 @@ export class FaceRecorder {
     this.flush();
     if (!this.nCells) return null;
     const sheets = await Promise.all(this.pending);
-    return { v: 1, level: this.level, cellW: CELL_W, cellH: CELL_H, cols: COLS, rows: ROWS, times: this.times, cells: this.cells, sheets };
+    return { v: 1, level: this.level, cellW: CELL_W, cellH: CELL_H, cols: COLS, rows: ROWS, times: this.times, cells: this.cells, ratios: this.ratios, sheets };
   }
 }
 
@@ -120,6 +123,14 @@ export class FacePlayer {
       this.lastKey = key;
       this.blit(ci, cj, a);
     }
+    // 실제 비율 (얼굴을 찾은 장면끼리 섞음)
+    const R = this.rec.ratios;
+    if (R) {
+      const ri = ci >= 0 ? i : j, rj = cj >= 0 ? j : i;
+      const w = ci >= 0 && cj >= 0 ? a : 0;
+      const eye = R[ri * 2] + (R[rj * 2] - R[ri * 2]) * w, mouth = R[ri * 2 + 1] + (R[rj * 2 + 1] - R[ri * 2 + 1]) * w;
+      this.out.ratio = eye > 0 && mouth > 0 ? { eye, mouth } : undefined;
+    } else this.out.ratio = undefined;
     return { patches: this.out, presence };
   }
 

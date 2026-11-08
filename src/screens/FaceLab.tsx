@@ -36,7 +36,7 @@ export function FaceLab() {
     setFaceTune(v);
     setTune({ ...FACE_TUNE });
     // 사진 모드는 눈 수평 맞추기가 오릴 때 들어가므로 다시 오림
-    if (source === 'photo' && ('level' in v || 'sameEyes' in v)) photoPatches();
+    if (source === 'photo' && ('level' in v || 'sameEyes' in v || 'realSize' in v)) photoPatches();
   };
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -235,6 +235,7 @@ export function FaceLab() {
       <details className="card mt-4 p-4" open>
         <summary className="font-display text-[17px]">눈·입 모양 맞추기</summary>
         <div className="mt-3 space-y-3">
+          <Toggle id="ft-real" label="실제 크기·비율 그대로" checked={tune.realSize} onChange={(v) => changeTune({ realSize: v })} hint="켜면 아이 얼굴에서 잰 비율로 붙여요 (눈 크기·입 크기 막대는 꺼야 적용돼요)" />
           <Toggle id="ft-same" label="양쪽 눈 똑같이 (잘 보이는 눈을 거울처럼)" checked={tune.sameEyes} onChange={(v) => changeTune({ sameEyes: v })} />
           <Slider id="ft-tilt" label="눈꼬리 (처짐 ↔ 올라감)" value={tune.tilt} min={-12} max={12} step={1} onChange={(v) => changeTune({ tilt: v })} format={(v) => `${v > 0 ? '+' : ''}${v}°`} />
           <Slider id="ft-spread" label="눈 사이 (좁게 ↔ 넓게)" value={tune.spread} min={0.85} max={1.45} step={0.01} onChange={(v) => changeTune({ spread: v })} format={(v) => `${v.toFixed(2)}배`} />
@@ -282,5 +283,5 @@ function cloneP(p: FacePatches): FacePatches {
     d.getContext('2d')!.drawImage(c, 0, 0);
     return d;
   };
-  return { eyes: [cp(p.eyes[0]), cp(p.eyes[1])], mouth: cp(p.mouth) };
+  return { eyes: [cp(p.eyes[0]), cp(p.eyes[1])], mouth: cp(p.mouth), ratio: p.ratio ? { ...p.ratio } : undefined };
 }

@@ -30,18 +30,23 @@ export interface FaceTune {
   mouthDown: number;
   /** 양쪽 눈을 똑같이: 더 잘 보이는 눈 하나를 골라 반대쪽에 거울처럼 씀 (고개를 돌려도 두 눈이 같은 모양) */
   sameEyes: boolean;
+  /** 실제 크기·비율 그대로: 아이 얼굴에서 잰 '눈 크기 : 눈 사이 : 입 크기' 비율로 붙임 (눈 크기·입 크기 막대 대신) */
+  realSize: boolean;
 }
 /** 기본 실사 정도: 0 = 그림에 가깝게 (사용자 결정, 2026-11-04) */
 export const FACE_LEVEL_DEFAULT = 0;
 
 // 사용자가 휴대폰에서 직접 맞춘 값 (2026-11-02)
-export const FACE_TUNE_DEFAULT: FaceTune = { level: 0.5, tilt: 4, spread: 1.07, round: 1.4, eyeSize: 0.47, mouthSize: 0.63, mouthDown: 0.2, sameEyes: true };
+// 2026-11-08 사용자 요청: 인위적으로 키우거나 줄이지 않고 실제 눈 그대로 → 늘이기·기울이기·넓히기 없음, 실제 비율
+export const FACE_TUNE_DEFAULT: FaceTune = { level: 0, tilt: 0, spread: 1, round: 1, eyeSize: 0.47, mouthSize: 0.63, mouthDown: 0.2, sameEyes: true, realSize: true };
+/** 저장된 조절 값의 판 번호 (기본값이 크게 바뀌면 올려서 예전 값을 버림) */
+const TUNE_V = 2;
 const TUNE_KEY = 'mallang-face-tune';
 /** 지금 쓰는 값 (시안 화면에서 바꾸면 이 기기에만 기억) */
 export const FACE_TUNE: FaceTune = (() => {
   try {
     const v = JSON.parse(localStorage.getItem(TUNE_KEY) || 'null');
-    if (v && typeof v === 'object') return { ...FACE_TUNE_DEFAULT, ...v };
+    if (v && typeof v === 'object' && v.v === TUNE_V) return { ...FACE_TUNE_DEFAULT, ...v };
   } catch {
     /* 저장소를 못 쓰면 기본값 */
   }
@@ -50,7 +55,7 @@ export const FACE_TUNE: FaceTune = (() => {
 export function setFaceTune(v: Partial<FaceTune>) {
   Object.assign(FACE_TUNE, v);
   try {
-    localStorage.setItem(TUNE_KEY, JSON.stringify(FACE_TUNE));
+    localStorage.setItem(TUNE_KEY, JSON.stringify({ ...FACE_TUNE, v: TUNE_V }));
   } catch {
     /* 기억 못 해도 이번엔 적용 */
   }
@@ -144,6 +149,8 @@ type Pt = { x: number; y: number };
 export interface FacePatches {
   eyes: [HTMLCanvasElement, HTMLCanvasElement];
   mouth: HTMLCanvasElement;
+  /** 아이 얼굴의 실제 비율 (두 눈 사이 거리를 1로 볼 때 눈 너비·입 너비) */
+  ratio?: { eye: number; mouth: number };
 }
 
 /** 오린 조각의 가로·세로 크기 (눈: 실제 눈 너비의 EYE_CROP배를 담음) */
@@ -161,6 +168,7 @@ const mk = (w: number, h: number) => {
 const pool = new Map<string, FacePatches>();
 /** 양쪽 눈을 똑같이 쓸 때 고른 눈 (화면 왼쪽 0 / 오른쪽 1) */
 const domEye = new Map<string, number>();
+const ratioMem = new Map<string, { eye: number; mouth: number }>();
 function patchesFor(key: string): FacePatches {
   let p = pool.get(key);
   if (!p) pool.set(key, (p = { eyes: [mk(EYE_W, EYE_H), mk(EYE_W, EYE_H)], mouth: mk(MOUTH_W, MOUTH_H) }));
@@ -274,6 +282,19 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
 
   const ml = pts[MOUTH_L], mr = pts[MOUTH_R];
   const mw = Math.hypot(mr.x - ml.x, mr.y - ml.y);
+  // 실제 비율: 두 눈 가운데 사이 거리를 1로 볼 때 눈 너비·입 너비 (떨림이 없게 부드럽게)
+  {
+    const ca = centroid(EYE_A.ring.map((i) => pts[i])), cb = centroid(EYE_B.ring.map((i) => pts[i]));
+    const dist = Math.max(1, Math.hypot(cb.x - ca.x, cb.y - ca.y));
+    const wA = Math.hypot(pts[EYE_A.inner].x - pts[EYE_A.outer].x, pts[EYE_A.inner].y - pts[EYE_A.outer].y);
+    const wB = Math.hypot(pts[EYE_B.inner].x - pts[EYE_B.outer].x, pts[EYE_B.inner].y - pts[EYE_B.outer].y);
+    const eyeR = (FACE_TUNE.sameEyes ? Math.max(wA, wB) : (wA + wB) / 2) / dist;
+    const mouthR = mw / dist;
+    const prev = ratioMem.get(key);
+    const r = prev ? { eye: prev.eye + (eyeR - prev.eye) * 0.2, mouth: prev.mouth + (mouthR - prev.mouth) * 0.2 } : { eye: eyeR, mouth: mouthR };
+    ratioMem.set(key, r);
+    P.ratio = r;
+  }
   const lips = LIPS_OUTER.map((i) => pts[i]);
   cutOut(P.mouth, src, centroid(lips), roll, (mw * MOUTH_CROP) / MOUTH_W, o.mirror, lips, [1.32, 1.6, 1.6], lips, true, [1.14, 1.25, 1.25]);
   const lip = o.lip ?? '#C9606E';
@@ -434,13 +455,14 @@ function stylize(c: HTMLCanvasElement, L: number, o: { ink: string; dark: string
       const yy = (0.299 * r + 0.587 * gg + 0.114 * b);
       const inCore = core ? core[p] / 255 : 0;
       // 색 빼기는 눈 안쪽에만 (캐릭터 색으로 바꾼 둘레 피부·입술은 그대로)
-      const sat2 = o.mouth ? 1 : 1 - (1 - sat) * inCore;
+      const sat2 = o.mouth ? 1 : 1 - (1 - sat) * inCore * 0.2;
       r = yy + (r - yy) * sat2;
       gg = yy + (gg - yy) * sat2;
       b = yy + (b - yy) * sat2;
       // 3) 밝고 색이 옅은 곳(흰자·이) → 종이색 (입속 이는 덜 눈부시게)
       // (눈·입 안쪽만 — 둘레 피부가 하얗게 뜨지 않게)
-      const wv = k * (o.mouth ? 0.12 : 0.8) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s)) * (core ? inCore : 1);
+      // (눈·입 안쪽은 실제 그대로 보이게 아주 조금만)
+      const wv = k * (o.mouth ? 0.12 : 0.2) * sstep(0.5, 0.78, y) * (1 - sstep(0.25, 0.55, s)) * (core ? inCore : 1);
       const pw = o.mouth ? 0.93 : 1;
       r += (PAPER[0] * pw - r) * wv;
       gg += (PAPER[1] * pw - gg) * wv;

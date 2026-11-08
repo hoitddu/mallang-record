@@ -114,6 +114,8 @@ export interface FaceRecord {
   times: number[];
   /** 장면마다 칸 번호 (얼굴을 못 찾은 장면은 -1) */
   cells: number[];
+  /** 장면마다 실제 비율 [눈 너비, 입 너비, …] (두 눈 사이 거리 = 1). 예전 기록에는 없음 */
+  ratios?: number[];
   /** 조각 그림판 (WebP 또는 PNG) */
   sheets: Blob[];
 }

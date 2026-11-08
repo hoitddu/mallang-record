@@ -649,7 +649,9 @@ function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number
   const midX = two ? (e0.cx + e1.cx) / 2 : 0.5, midY = two ? (e0.cy + e1.cy) / 2 : 0.5;
   eyes.slice(0, 2).forEach((e, i) => {
     const [ox, oy] = warpOffset(e.cx, e.cy, warp);
-    const vis = gap ? gap * T.eyeSize : e.rx * 2 * dw * 3.4 * (T.eyeSize / 0.5);
+    // 실제 비율이 있으면 아이 얼굴 그대로의 눈 크기 (두 눈 사이 거리 기준)
+    const eyeK = T.realSize && fp.ratio ? fp.ratio.eye : T.eyeSize;
+    const vis = gap ? gap * eyeK : e.rx * 2 * dw * 3.4 * (eyeK / 0.5);
     // 동그랗고 귀엽게: 세로로 늘이고 가로는 살짝 줄임
     const pw = vis * EYE_CROP * (1 - (T.round - 1) * 0.25), ph = ((vis * EYE_CROP * EYE_H) / EYE_W) * T.round;
     // 눈이 하나뿐인 옆모습 캐릭터는 보이는 쪽 눈
@@ -669,7 +671,7 @@ function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number
   const mt = prep.mouth;
   if (mt) {
     const [ox, oy] = warpOffset(mt.x, mt.y, warp);
-    const vis = gap ? Math.max(gap * T.mouthSize, mt.w * dw * 1.2) : mt.w * dw * 1.6;
+    const vis = T.realSize && fp.ratio && gap ? gap * fp.ratio.mouth : gap ? Math.max(gap * T.mouthSize, mt.w * dw * 1.2) : mt.w * dw * 1.6;
     const pw = vis * MOUTH_CROP, ph = (pw * MOUTH_H) / MOUTH_W;
     // 입은 그림 속 입 자리에서 얼굴 아래쪽으로 조금 (두 눈 사이 거리 기준), 얼굴 기울기를 따라 돌림
     const down = gap ? gap * T.mouthDown : mt.w * dw * 0.25;
