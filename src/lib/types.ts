@@ -93,6 +93,29 @@ export interface Clip {
    * 그림책 잇기 영상의 자막으로 쓰여요. 옛 기록에는 없을 수 있어요(→ utteranceOf 참고).
    */
   utterance?: string;
+  /**
+   * 아이 눈·입 조각 (녹화할 때 카메라로 인식해 그림체로 바꾼 것). 원본 얼굴 영상은 저장하지 않아요.
+   * 없으면(옛 기록·파일로 만든 기록) 그린 눈·입.
+   */
+  face?: FaceRecord;
+}
+
+/** 녹화 중 오려 둔 눈·입 조각 모음: 조각 그림판(sheets) 여러 장 + 장면마다 시각 */
+export interface FaceRecord {
+  v: 1;
+  /** 실사 정도 0(그림에 가깝게) ~ 1 */
+  level: number;
+  /** 한 장면 칸 크기와 그림판 한 장의 칸 수 */
+  cellW: number;
+  cellH: number;
+  cols: number;
+  rows: number;
+  /** 장면마다 녹음 기준 시각(초) */
+  times: number[];
+  /** 장면마다 칸 번호 (얼굴을 못 찾은 장면은 -1) */
+  cells: number[];
+  /** 조각 그림판 (WebP 또는 PNG) */
+  sheets: Blob[];
 }
 
 export interface Settings {
@@ -100,6 +123,8 @@ export interface Settings {
   birthDate?: string;
   /** 여러 단어 잇기 그림책의 책 모양 (마지막에 고른 것) */
   bookLayout?: 'page' | 'spread' | 'vertical';
+  /** 녹음할 때 카메라로 아이 눈·입도 함께 담기 (없으면 켜짐) */
+  faceCam?: boolean;
 }
 
 export interface Draft {

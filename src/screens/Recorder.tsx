@@ -1,14 +1,16 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stage } from '../components/Stage';
-import { Notice, TopBar } from '../components/ui';
+import { Notice, Toggle, TopBar } from '../components/ui';
 import { decodeBlob, extractAudioFromVideo, pickAudioMime, unlockAudio } from '../lib/audio';
 import { clearDraft, defaultCaption, formatDate, getDraft, monthsBetween, putClip, saveDraft, uid } from '../lib/db';
 import { inAppBrowser, inIframe, micErrorMessage, micSupport, type FriendlyError } from '../lib/env';
 import { prepare, snapshotOf, type Prepared } from '../lib/images';
 import { captionTimes } from '../lib/captionTiming';
 import { captionProgress, voiceTrim, analyzeBuffer, computeTrack, estimateFloor, frameAt, IDLE_FRAME, MotionProcessor, type MotionTrack } from '../lib/motion';
-import { renderScene, type SceneInfo } from '../lib/render';
-import type { Clip } from '../lib/types';
+import { renderScene, type FaceDraw, type SceneInfo } from '../lib/render';
+import { artSkinColors, extractPatches, FACE_LEVEL_DEFAULT, LandmarkSmoother, loadFaceLandmarker, type FacePatches } from '../lib/face';
+import { FacePlayer, FaceRecorder, facePlayerOf } from '../lib/faceTrack';
+import type { Clip, FaceRecord } from '../lib/types';
 import { useApp } from '../store';
 
 type Phase = 'idle' | 'starting' | 'recording' | 'processing' | 'review';
@@ -25,7 +27,7 @@ interface Take {
 const MAX_SEC = 60;
 
 export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraft?: boolean }) {
-  const { pictures, settings, back, replace, toast } = useApp();
+  const { pictures, settings, setSettings, back, replace, toast } = useApp();
   const pic = pictures.find((p) => p.id === pictureId);
   const [prep, setPrep] = useState<Prepared | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
@@ -35,6 +37,23 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
   const [elapsed, setElapsed] = useState(0);
   const [playing, setPlaying] = useState(false);
   const [progress, setProgress] = useState<string | null>(null);
+  // 아이 눈·입 담기 (앞 카메라). 카메라 영상은 저장하지 않고 그림체로 바꾼 눈·입 조각만 남김
+  const faceOn = settings.faceCam !== false;
+  // 눈·입 자리를 아는 기본 그림에서만 (직접 올린 그림은 다음 단계)
+  const faceUsable = faceOn && !!pic?.builtinKey && !pic?.image;
+  const [takeFace, setTakeFace] = useState<{ rec: FaceRecord; player: FacePlayer } | null>(null);
+  const camRef = useRef<HTMLVideoElement>(null);
+  const cam = useRef<{
+    stream: MediaStream;
+    smoother: LandmarkSmoother;
+    rec: FaceRecorder;
+    patches: FacePatches | null;
+    presence: number;
+    target: number;
+    lastTs: number;
+    busy: boolean;
+    found: boolean;
+  } | null>(null);
 
   const live = useRef<{
     stream: MediaStream;
@@ -56,6 +75,66 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
   useEffect(() => {
     if (pic) prepare(pic).then(setPrep).catch(() => {});
   }, [pic?.image, pic?.builtinKey]);
+
+  // 눈·입 담기를 켜 두었으면 얼굴 인식 엔진을 미리 받아 둠 (카메라는 녹음 버튼을 누를 때 켬)
+  useEffect(() => {
+    if (faceUsable) loadFaceLandmarker().catch(() => {});
+  }, [faceUsable]);
+  useEffect(() => () => stopCam(), []);
+
+  function stopCam() {
+    cam.current?.stream.getTracks().forEach((t) => t.stop());
+    cam.current = null;
+    if (camRef.current) camRef.current.srcObject = null;
+  }
+
+  /** 앞 카메라 켜기 (실패하면 목소리만) */
+  async function startCam(): Promise<boolean> {
+    try {
+      const [stream] = await Promise.all([
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user', width: { ideal: 640 }, height: { ideal: 480 } }, audio: false }),
+        loadFaceLandmarker(),
+      ]);
+      const v = camRef.current!;
+      v.srcObject = stream;
+      await v.play().catch(() => {});
+      cam.current = { stream, smoother: new LandmarkSmoother(), rec: new FaceRecorder(FACE_LEVEL_DEFAULT), patches: null, presence: 0, target: 0, lastTs: -1, busy: false, found: false };
+      return true;
+    } catch {
+      setNote('카메라를 켜지 못해서 목소리만 녹음해요. 아이 눈·입을 담으려면 카메라 사용을 허용해 주세요.');
+      return false;
+    }
+  }
+
+  /** 카메라 한 장면: 얼굴 찾기 → 눈·입 오리기(그림체) → 화면에 쓰고, 녹음 중이면 모아 두기 */
+  function camStep(now: number, recT: number | null) {
+    const c = cam.current;
+    const v = camRef.current;
+    if (!c || !v || v.readyState < 2 || !v.videoWidth || c.busy) return;
+    const ts = Math.max(c.lastTs + 1, now * 1000);
+    c.lastTs = ts;
+    c.busy = true;
+    loadFaceLandmarker()
+      .then((lm) => {
+        if (cam.current !== c) return;
+        const res = lm.detectForVideo(v, ts);
+        const lms = res.faceLandmarks[0];
+        let p: FacePatches | null = null;
+        if (lms && prep) {
+          const pts = c.smoother.apply(lms, v.videoWidth, v.videoHeight, ts / 1000);
+          const sk = artSkinColors(prep);
+          p = extractPatches(v, pts, { level: FACE_LEVEL_DEFAULT, mirror: true, skinEye: sk.eye, skinMouth: sk.mouth }, 'rec');
+          c.found = true;
+        }
+        c.patches = p ?? c.patches;
+        c.target = p ? 1 : 0;
+        if (recT !== null) c.rec.add(recT, p);
+      })
+      .catch(() => {})
+      .finally(() => {
+        c.busy = false;
+      });
+  }
 
   // 저장하지 않은 녹음 이어서 보기
   useEffect(() => {
@@ -124,6 +203,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
     }
     const ctx = unlockAudio(); // 버튼을 누른 순간 소리 엔진 깨우기
     setPhase('starting');
+    setTakeFace(null);
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({
@@ -164,6 +244,9 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
         mime: rec.mimeType || mime,
         stopping: false,
       };
+      // 눈·입 담기: 카메라를 켠 뒤 녹음 시작 (시각을 맞추려고 시작 시각을 다시 잡음)
+      if (faceUsable) await startCam();
+      live.current.start = live.current.last = performance.now() / 1000;
       rec.start(500); // 0.5초마다 조각 저장 → 중간에 멈춰도 유실 최소화
       setElapsed(0);
       setPhase('recording');
@@ -192,6 +275,11 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
     if (!l) return;
     live.current = null;
     l.stream.getTracks().forEach((t) => t.stop());
+    // 카메라 끄기 → 모아 둔 눈·입 조각 정리 (원본 카메라 영상은 처음부터 저장하지 않음)
+    const c = cam.current;
+    stopCam();
+    const faceRec = c ? await c.rec.finish().catch(() => null) : null;
+    if (c && !faceRec) setNote('녹음하는 동안 얼굴을 찾지 못해서 그린 눈·입으로 보여줘요. 밝은 곳에서 얼굴을 화면 가운데에 비춰 주세요.');
     const blob = new Blob(l.chunks, { type: (l.mime || 'audio/mp4').split(';')[0] });
     if (!blob.size) {
       setErr({ title: '녹음된 소리가 없어요', detail: '녹음 버튼을 누르고 1초 이상 말한 뒤 멈춰 주세요.' });
@@ -201,6 +289,10 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
     // 원본 녹음을 먼저 기기에 보관 (앱이 꺼져도 유실 방지)
     await saveDraft({ id: 'last', pictureId, audio: blob, mime: blob.type, source: 'mic', createdAt: Date.now() }).catch(() => {});
     await loadTake(blob, blob.type, 'mic', false);
+    if (faceRec) {
+      const player = await facePlayerOf(faceRec).catch(() => null);
+      if (player) setTakeFace({ rec: faceRec, player });
+    }
   }
 
   async function loadTake(blob: Blob, mime: string, source: Clip['source'], isVideo: boolean, file?: Blob) {
@@ -238,6 +330,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
 
   async function onFile(f: File | undefined) {
     if (!f) return;
+    setTakeFace(null);
     setErr(null);
     setNote(null);
     unlockAudio();
@@ -281,6 +374,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
       months: monthsBetween(settings.birthDate, now),
       trimStart: cut ? cut.start : 0,
       trimEnd: cut ? cut.end : take.buffer.duration,
+      ...(takeFace ? { face: takeFace.rec } : {}),
     };
     await putClip(clip);
     await clearDraft();
@@ -291,6 +385,7 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
   async function retake() {
     audioRef.current?.pause();
     setTake(null);
+    setTakeFace(null);
     setNote(null);
     await clearDraft();
     setPhase('idle');
@@ -302,7 +397,15 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
     let frame = { ...IDLE_FRAME, t: now };
     let reveal = 0;
     let capT: number | undefined;
+    let face: FaceDraw | null = null;
     if (phase === 'recording' && l) {
+      // 카메라: 아이 눈·입을 실시간으로 붙이고 모아 둠
+      const c = cam.current;
+      if (c) {
+        camStep(now, now - l.start);
+        c.presence += (c.target - c.presence) * 0.2;
+        if (c.patches) face = { patches: c.patches, presence: c.presence };
+      }
       const n = l.analyser.fftSize;
       if (typeof l.analyser.getFloatTimeDomainData === 'function') l.analyser.getFloatTimeDomainData(l.buf as any);
       else {
@@ -332,11 +435,15 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
         frame = frameAt(take.track, t);
         reveal = captionProgress(t, take.track.firstVoice, take.track.lastVoice, Array.from(baseScene.caption?.text ?? '').length);
         capT = t;
-      } else reveal = 1;
+        face = takeFace?.player.at(t) ?? null;
+      } else {
+        reveal = 1;
+        face = takeFace ? takeFace.player.at(take.track.firstVoice >= 0 ? take.track.firstVoice : 0) : null;
+      }
       frame.t = now;
     }
     // 미리 듣기: 글자가 말하는 박자에 맞춰 나타남 (저장 후 영상과 같은 계산)
-    renderScene(ctx, W, H, { ...baseScene, captionReveal: reveal, ...(capT !== undefined ? { captionTimes: takeCapTimes, captionT: capT } : {}) }, frame);
+    renderScene(ctx, W, H, { ...baseScene, face, captionReveal: reveal, ...(capT !== undefined ? { captionTimes: takeCapTimes, captionT: capT } : {}) }, frame);
   };
 
   if (!pic)
@@ -362,7 +469,11 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
         </div>
       )}
 
-      <Stage draw={draw} maxHeight="58dvh" />
+      <div className="relative">
+        <Stage draw={draw} maxHeight="58dvh" />
+        {/* 얼굴이 화면 안에 있는지 보는 작은 화면 (저장하지 않음) */}
+        <video ref={camRef} playsInline muted className={`pointer-events-none absolute right-2 top-2 w-16 -scale-x-100 rounded-lg shadow-paper ${recording && cam.current ? 'opacity-90' : 'opacity-0'}`} />
+      </div>
 
       {/* 소리 입력 상태 */}
       <div className="mx-auto mt-3 max-w-[340px]" aria-live="polite">
@@ -438,7 +549,17 @@ export function Recorder({ pictureId, fromDraft }: { pictureId: string; fromDraf
           </>
         )}
         <input ref={fileRef} type="file" accept="audio/*,video/*,.m4a,.mp3,.wav,.mov,.mp4" className="hidden" onChange={(e) => onFile(e.target.files?.[0])} />
-        {!recording && phase !== 'review' && <p className="hint max-w-[340px] text-center">영상을 고르면 소리만 꺼내 써요. 아이 얼굴은 결과물에 나오지 않고 어디에도 저장되지 않아요.</p>}
+        {phase === 'idle' && pic.builtinKey && !pic.image && (
+          <div className="card w-full max-w-[340px] p-3">
+            <Toggle id="face-cam" label="아이 눈·입도 함께 담기 (앞 카메라)" checked={faceOn} onChange={(v) => setSettings({ ...settings, faceCam: v })} />
+            <p className="hint mt-1">
+              {faceOn
+                ? '녹음 버튼을 누르면 앞 카메라가 켜지고, 아이 눈·입이 그림체로 바뀌어 캐릭터에 붙어요. 카메라 영상은 저장하지 않고, 기기 밖으로 보내지 않아요.'
+                : '끄면 그린 눈·입으로 움직여요.'}
+            </p>
+          </div>
+        )}
+        {!recording && phase !== 'review' && <p className="hint max-w-[340px] text-center">영상 파일을 고르면 소리만 꺼내 써요. 파일 속 얼굴은 결과물에 나오지 않고 어디에도 저장되지 않아요.</p>}
       </div>
     </div>
   );

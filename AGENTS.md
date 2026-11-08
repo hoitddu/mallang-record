@@ -45,7 +45,11 @@ Codex는 이 파일을 자동으로 읽고, Claude는 `CLAUDE.md`를 거쳐 이 
 ## 2. 앱의 약속 (꼭 지키기)
 
 - **아이 목소리·그림·기록은 기기 밖으로 보내지 않습니다.** 서버로 업로드하는 기능을 사용자 동의 없이 추가하지 마세요.
-- **진짜 사람 얼굴(입·눈) 사진을 합성하지 않습니다.** 올린 그림은 다시 그리지 않고 늘이기·기울이기·이동만 합니다.
+- **아이 눈·입 붙이기(얼굴 인식)는 기기 안에서만 합니다.** (2026-11-02 사용자 결정으로 "사람 얼굴을 합성하지 않는다" 규칙을 이것으로 바꿈)
+  - 얼굴 인식(MediaPipe, `src/lib/face.ts`)은 앱 안의 파일(`public/models`, 빌드 때 복사되는 `public/mediapipe`)로 휴대폰에서만 실행하고, 카메라 영상·사진·얼굴 점을 기기 밖으로 보내지 않습니다.
+  - **원본 얼굴 영상은 저장하지 않습니다**(처리 후 버림). 기록에는 그림체로 바꾼 눈·입 조각만 남깁니다.
+  - 카메라는 안내를 보여 준 뒤에만 켭니다. 눈·입 둘레 피부는 캐릭터 색으로 바꿔 사람 얼굴이 그대로 드러나지 않게 합니다.
+- 올린 그림은 다시 그리지 않고 늘이기·기울이기·이동만 합니다.
 - 회원가입·로그인 없이 쓰는 앱입니다.
 
 ## 3. 보안 규칙
@@ -54,6 +58,7 @@ Codex는 이 파일을 자동으로 읽고, Claude는 `CLAUDE.md`를 거쳐 이 
 - **보안 헤더 유지:** `vercel.json`의 보안 헤더(Content-Security-Policy, X-Content-Type-Options, Referrer-Policy, X-Frame-Options, Permissions-Policy)를 지우거나 느슨하게 하지 마세요.
   - 새 외부 주소(글꼴, 이미지, API 등)를 써야 하면 CSP에 **그 주소만** 추가하고, 이유를 작업기록에 남기세요.
   - CSP 때문에 기능이 막히면 브라우저 콘솔의 "Refused to ..." 메시지를 보고 필요한 항목만 허용하세요.
+  - 얼굴 인식 엔진(wasm) 때문에 `script-src`에 `'wasm-unsafe-eval'`, `Permissions-Policy`에 `camera=(self)`를 넣었습니다. 이보다 더 느슨하게 하지 마세요(외부 주소에서 엔진·모델을 받지 않음).
   - Vercel **미리보기 주소**에서만 `vercel.live/.../feedback.js`가 CSP에 막혔다는 메시지가 뜹니다. Vercel 의견 도구라 운영 주소에는 없으니 **허용하지 마세요** (정상).
 - **위험한 코드 금지:** `dangerouslySetInnerHTML`, `innerHTML`, `eval`, `new Function`을 쓰지 마세요. 화면 문구는 React로 그리면 안전합니다.
 - **패키지:** 꼭 필요할 때만 추가하고, 추가 후 `npm audit` 0개를 유지합니다.
@@ -116,6 +121,13 @@ npm audit          # 패키지 취약점 확인 → 0개 유지
 - `public/_headers`, `public/_redirects`는 예전 Netlify용 설정입니다. 헤더를 바꿀 때는 `vercel.json`이 기준이고, Netlify를 다시 쓸 일이 있으면 그때 맞춥니다.
 - 서비스 워커(`public/sw.js`)는 화면 이동을 "인터넷 먼저"로 받아서, 배포하면 앱을 다시 열 때 새 버전이 보입니다.
 
-## 10. 보류한 아이디어
+## 10. 진행 중인 큰 방향: 아이 눈·입 붙이기
+
+- 1단계(시안, 끝): 설정 → 실험 기능 → **얼굴 실험실**. 사용자가 실사 정도 "그림에 가깝게"(`FACE_LEVEL_DEFAULT = 0`)와 눈·입 모양(`FACE_TUNE_DEFAULT`)을 정함.
+- 2~4단계(끝, 사용자 확인): 녹음 화면에서 "아이 눈·입도 함께 담기"(설정 `faceCam`, 기본 켜짐, 기본 그림만) → 녹음 버튼을 누르면 앞 카메라를 켜고 실시간으로 붙임 → 카메라 영상은 녹화하지 않고 그림체로 바꾼 눈·입 조각만 초당 15장면 모아 `Clip.face`(`FaceRecord`: 조각 그림판 WebP + 장면 시각)로 저장 → 미리보기·영상·그림책이 `FacePlayer`로 같은 시각의 조각을 꺼내 씀(`src/lib/faceTrack.ts`, `timeline.ts` `itemFace`).
+- 남은 단계: 갤러리 영상에서 눈·입 가져오기, 직접 올린 그림의 눈·입 자리 정하기, 편집 화면에서 그림을 바꿨을 때 눈·입 둘레 색 다시 맞추기(지금은 녹음할 때 그림 색으로 굳음).
+- 코드: `src/lib/face.ts`(인식 엔진 불러오기 `loadFaceLandmarker`, 떨림 거르기 `LandmarkSmoother`, 오리기·그림체 `extractPatches`, 캐릭터 얼굴색 `artSkinColors`), `render.ts`의 `drawFaceParts`(`drawIllustration`의 마지막 인자 `face`), 화면 `src/screens/FaceLab.tsx`.
+
+## 11. 보류한 아이디어
 
 - **AI로 같은 그림체 그림 자동 생성**: 당분간 보류. 그림은 수동 추가로 유지하고 현재 앱 고도화를 먼저 합니다.

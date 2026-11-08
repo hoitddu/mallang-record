@@ -2,8 +2,8 @@ import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
 import { IDLE_FRAME } from './motion';
 import { captionShown, charAlpha, timesForLines } from './captionTiming';
-import { COLORS, drawBackground, drawIllustration } from './render';
-import { buildTimeline, itemCaptionTimes, itemFrame, type Timeline, type TimelineItem } from './timeline';
+import { COLORS, drawBackground, drawIllustration, type FaceDraw } from './render';
+import { buildTimeline, itemCaptionTimes, itemFace, itemFrame, type Timeline, type TimelineItem } from './timeline';
 
 /**
  * 그림책 잇기: 여러 기록을 그림책처럼 한 장씩 넘기며 보여줍니다.
@@ -68,6 +68,8 @@ type Face = { picture?: number; text?: number } & { spine: 'left' | 'right' | 't
 
 interface PageState {
   frame: MotionFrame;
+  /** 아이 눈·입 */
+  face?: FaceDraw | null;
   reveal: number;
   /** 글자마다 나타나는 시각(녹음 기준)과 지금 시각 */
   times?: number[] | null;
@@ -76,14 +78,14 @@ interface PageState {
 
 /** 시각 t에 기록 i의 그림 움직임과 자막이 나타난 정도 */
 function pageState(d: BookData, i: number, t: number, idleNow?: number): PageState {
-  if (idleNow !== undefined) return { frame: { ...IDLE_FRAME, t: idleNow }, reveal: 1 };
+  if (idleNow !== undefined) return { frame: { ...IDLE_FRAME, t: idleNow }, reveal: 1, face: itemFace(d.tl.items[i]) };
   const it = d.tl.items[i];
   const o = d.tl.offsets[i];
   const frame = itemFrame(it, o, t);
   // 아이가 말하는 박자에 맞춰 글자·단어가 나타남 (한 장짜리 영상 자막과 같은 계산)
   const lt = it.trimStart + (t - o);
   const times = itemCaptionTimes(it, d.texts[i] ?? '');
-  return { frame, reveal: captionShown(lt, times), times, lt };
+  return { frame, reveal: captionShown(lt, times), times, lt, face: itemFace(it, lt) };
 }
 
 function roundRectPath(ctx: CanvasRenderingContext2D, r: Rect, rad: [number, number, number, number]) {
@@ -148,7 +150,7 @@ function drawFace(ctx: CanvasRenderingContext2D, w: number, h: number, face: Fac
     if (it.scene.prepared) {
       const S = both ? Math.min(w * 0.84, h * 0.52) : Math.min(w * 0.86, h * 0.78);
       const cy = both ? h * 0.37 : h * 0.5;
-      drawIllustration(ctx, S, w / 2, cy, it.scene.prepared, it.scene.transform, it.scene.anim, st.frame);
+      drawIllustration(ctx, S, w / 2, cy, it.scene.prepared, it.scene.transform, it.scene.anim, st.frame, st.face);
     }
   }
   if (face.text !== undefined) {

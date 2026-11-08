@@ -5,3 +5,4 @@ dist-single
 *.zip
 __pycache__/
 *.pyc
+public/mediapipe/

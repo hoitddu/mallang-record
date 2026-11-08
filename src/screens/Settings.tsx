@@ -6,7 +6,7 @@ import { downloadFile } from '../lib/save';
 import { useApp } from '../store';
 
 export function SettingsScreen() {
-  const { back, settings, setSettings, reloadPictures, toast } = useApp();
+  const { back, go, settings, setSettings, reloadPictures, toast } = useApp();
   const [name, setName] = useState(settings.childName);
   const [birth, setBirth] = useState(settings.birthDate ?? '');
   const [usage, setUsage] = useState<string>('');
@@ -104,6 +104,13 @@ export function SettingsScreen() {
           }}
         >
           숨긴 기본 그림 다시 보이기
+        </button>
+      </section>
+
+      <section className="card mt-4 space-y-3 p-4">
+        <h2 className="font-display text-[18px]">실험 기능</h2>
+        <button className="btn-sheet w-full !py-2.5 text-[15px]" onClick={() => go({ name: 'facelab' })}>
+          얼굴 실험실 (시안) — 아이 눈·입을 그림에 붙여 보기
         </button>
       </section>
 

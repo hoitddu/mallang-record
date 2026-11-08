@@ -8,6 +8,7 @@ import { deleteClip, formatDate, getClip, putClip } from '../lib/db';
 import { prepareSnapshot, snapshotOf, type Prepared } from '../lib/images';
 import { voiceTrim, computeTrack } from '../lib/motion';
 import { buildTimeline } from '../lib/timeline';
+import { facePlayerOf, type FacePlayer } from '../lib/faceTrack';
 import type { Clip } from '../lib/types';
 import { useApp } from '../store';
 import { PictureGrid } from './Library';
@@ -23,6 +24,7 @@ export function ClipEditor({ clipId }: { clipId: string }) {
   const [clip, setClip] = useState<Clip | null>(null);
   const [audio, setAudio] = useState<ClipAudio | null>(null);
   const [prep, setPrep] = useState<Prepared | null>(null);
+  const [facePlayer, setFacePlayer] = useState<FacePlayer | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>('anim');
   const [picOpen, setPicOpen] = useState(false);
@@ -69,14 +71,24 @@ export function ClipEditor({ clipId }: { clipId: string }) {
     [audio, clip?.anim.sensitivity, clip?.anim.speed]
   );
 
+  // 아이 눈·입 조각 (녹화한 기록만)
+  useEffect(() => {
+    let alive = true;
+    setFacePlayer(null);
+    if (clip?.face) facePlayerOf(clip.face).then((p) => alive && setFacePlayer(p)).catch(() => {});
+    return () => {
+      alive = false;
+    };
+  }, [clip?.face]);
+
   // 앞뒤 조용한 부분을 뺀 아이 목소리 범위
   const voiceCut = useMemo(() => (track && audio ? voiceTrim(track, audio.buffer.duration) : null), [track, audio]);
 
   const timeline = useMemo(() => {
     if (!clip || !audio || !track) return null;
     const end = Math.min(clip.trimEnd || audio.buffer.duration, audio.buffer.duration);
-    return buildTimeline([{ scene: sceneFromClip(clip, prep), track, buf: audio.buffer, trimStart: clip.trimStart, trimEnd: end }], 0, 0.8, 0);
-  }, [clip, audio, track, prep]);
+    return buildTimeline([{ scene: sceneFromClip(clip, prep), track, buf: audio.buffer, trimStart: clip.trimStart, trimEnd: end, face: facePlayer }], 0, 0.8, 0);
+  }, [clip, audio, track, prep, facePlayer]);
 
   if (err)
     return (

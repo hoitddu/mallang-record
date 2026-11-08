@@ -9,6 +9,7 @@ import { Compose } from './screens/Compose';
 import { Home } from './screens/Home';
 import { Library } from './screens/Library';
 import { Motions } from './screens/Motions';
+import { FaceLab } from './screens/FaceLab';
 import { Recorder } from './screens/Recorder';
 import { SettingsScreen } from './screens/Settings';
 
@@ -114,6 +115,7 @@ export default function App() {
       {r.name === 'compose' && <Compose clipIds={r.clipIds} />}
       {r.name === 'settings' && <SettingsScreen />}
       {r.name === 'motions' && <Motions />}
+      {r.name === 'facelab' && <FaceLab />}
       <Toast text={text} />
     </Ctx.Provider>
   );

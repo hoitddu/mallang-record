@@ -3,6 +3,13 @@ import { paperGrain } from './images';
 import type { MotionFrame } from './motion';
 import { computePose } from './poses';
 import { charAlpha } from './captionTiming';
+import { EYE_CROP, EYE_H, EYE_W, FACE_TUNE, MOUTH_CROP, MOUTH_H, MOUTH_W, type FacePatches } from './face';
+
+/** 아이의 실제 눈·입 조각 (얼굴 인식). presence: 얼굴이 보이는 정도 0~1 (놓치면 그린 눈·입으로 자연스럽게) */
+export interface FaceDraw {
+  patches: FacePatches;
+  presence: number;
+}
 import type { AnimSettings, CaptionSettings, ImgTransform } from './types';
 
 export interface SceneInfo {
@@ -17,6 +24,8 @@ export interface SceneInfo {
   /** 자막 글자마다 나타나는 시각(말하는 박자에 맞춤)과 지금 시각 — 있으면 captionReveal 대신 씀 */
   captionTimes?: number[] | null;
   captionT?: number;
+  /** 아이의 실제 눈·입 (녹화한 기록) */
+  face?: FaceDraw | null;
   months?: string;
   /** 0~1 (여러 단어를 이을 때 장면 전환) */
   alpha?: number;
@@ -70,7 +79,7 @@ export function renderScene(ctx: CanvasRenderingContext2D, W: number, H: number,
   ctx.globalAlpha = scene.alpha ?? 1;
   drawTop(ctx, W, H, scene);
   const { S, cx, cy } = layoutBox(W, H);
-  if (scene.prepared) drawIllustration(ctx, S, cx, cy, scene.prepared, scene.transform, scene.anim, m);
+  if (scene.prepared) drawIllustration(ctx, S, cx, cy, scene.prepared, scene.transform, scene.anim, m, scene.face);
   drawBottom(ctx, W, H, scene);
   ctx.restore();
 }
@@ -197,9 +206,11 @@ export function drawIllustration(
   prep: Prepared,
   tf: ImgTransform,
   a: AnimSettings,
-  m: MotionFrame
+  m: MotionFrame,
+  face?: FaceDraw | null
 ) {
   const ar = prep.w / prep.h;
+  const fp = face && (prep.rig || prep.mouth) ? Math.max(0, Math.min(1, face.presence)) : 0;
   const fit = ar >= 1 ? [S, S / ar] : [S * ar, S];
   const dw = fit[0] * tf.scale;
   const dh = fit[1] * tf.scale;
@@ -270,8 +281,8 @@ export function drawIllustration(
       for (const part of rig.parts) if (!part.def.behind) drawRigPart(ctx, part, prep.w, prep.h, dw, dh, partAngle(part.def, a, m), need);
     } else if (pose.warp) drawWarped(ctx, mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh, pose.warp);
     else ctx.drawImage(mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh);
-    // 눈 깜빡임 (몸이 물결치면 눈도 같이 따라감)
-    drawEyes(ctx, rig, dw, dh, t, lvl, pose.warp, need);
+    // 눈 깜빡임 (몸이 물결치면 눈도 같이 따라감). 아이 눈이 보이면 그린 눈은 그만큼 옅게
+    drawEyes(ctx, rig, dw, dh, t, lvl, pose.warp, need, 1 - fp);
   } else if (pose.warp) drawWarped(ctx, mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh, pose.warp);
   else ctx.drawImage(mip(prep.img, need).img, -dw / 2, -dh / 2, dw, dh);
   // 회전 부품 (기본 유모차 바퀴)
@@ -286,7 +297,14 @@ export function drawIllustration(
     ctx.restore();
   }
   // 기본 그림의 입: 그림체와 같은 색·굵기로, 목소리 크기만큼 열림 (끄면 미소로 고정)
-  if (prep.mouth) drawMouth(ctx, prep.mouth, dw, dh, a.mouth !== false, lvl, pulse, pose.warp);
+  if (prep.mouth && fp < 1) {
+    ctx.save();
+    ctx.globalAlpha *= 1 - fp;
+    drawMouth(ctx, prep.mouth, dw, dh, a.mouth !== false, lvl, pulse, pose.warp);
+    ctx.restore();
+  }
+  // 아이의 실제 눈·입 (그림체로 바꾼 조각)
+  if (face && fp > 0) drawFaceParts(ctx, prep, dw, dh, face.patches, fp, pose.warp);
   ctx.restore();
 
   // ── 앞쪽 효과 (효과: 먼지·물결·물방울·하트·바람선 / 반짝임: 별)
@@ -567,7 +585,7 @@ export function blinkAmount(t: number, seed: number, lvl: number): number {
 }
 
 /** 눈 그리기: 감는 만큼 세로로 납작해지고, 거의 감기면 그림체와 같은 색의 곡선(감은 눈) */
-function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number, warp: Warp | undefined, need: number) {
+function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, dh: number, t: number, lvl: number, warp: Warp | undefined, need: number, eyeAlpha = 1) {
   const c = blinkAmount(t, rig.seed, lvl);
   const eye = mip(rig.eyeImg, need).img;
   const cover = rig.cover ? mip(rig.cover, need).img : null;
@@ -582,6 +600,9 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
       const csw = e.rx * 2 * mc * cw, csh = e.ry * 2 * mc * chh;
       ctx.drawImage(cover, csx, csy, csw, csh, -dw / 2 + (e.cx - e.rx * mc) * dw + ox, -dh / 2 + (e.cy - e.ry * mc) * dh + oy, e.rx * 2 * mc * dw, e.ry * 2 * mc * dh);
     }
+    if (eyeAlpha <= 0.001) continue;
+    ctx.save();
+    ctx.globalAlpha *= eyeAlpha;
     const m = 1.9; // 눈 둘레 번짐까지
     const sx = (e.cx - e.rx * m) * iw, sy = (e.cy - e.ry * m) * ih;
     const sw = e.rx * 2 * m * iw, sh = e.ry * 2 * m * ih;
@@ -604,7 +625,54 @@ function drawEyes(ctx: CanvasRenderingContext2D, rig: PreparedRig, dw: number, d
       ctx.stroke();
       ctx.restore();
     }
+    ctx.restore();
   }
+}
+
+/**
+ * 아이의 실제 눈·입 조각을 캐릭터 얼굴 자리에 붙이기.
+ * 크기는 캐릭터 두 눈 사이 거리에 맞춰 사람 얼굴 비율로(눈 너비 ≈ 눈 사이의 절반, 입 ≈ 눈 사이의 0.85배)
+ */
+function drawFaceParts(ctx: CanvasRenderingContext2D, prep: Prepared, dw: number, dh: number, fp: FacePatches, alpha: number, warp?: Warp) {
+  const eyes = prep.rig ? [...prep.rig.eyes].sort((p, q) => p.cx - q.cx) : [];
+  const gap = eyes.length >= 2 ? Math.abs(eyes[eyes.length - 1].cx - eyes[0].cx) * dw : 0;
+  ctx.save();
+  ctx.globalAlpha *= alpha;
+  ctx.imageSmoothingQuality = 'high';
+  // 두 눈의 가운데 (눈 사이를 넓힐 때 기준)
+  const midX = eyes.length >= 2 ? (eyes[0].cx + eyes[eyes.length - 1].cx) / 2 : 0.5;
+  eyes.slice(0, 2).forEach((e, i) => {
+    const [ox, oy] = warpOffset(e.cx, e.cy, warp);
+    const T = FACE_TUNE;
+    const vis = gap ? gap * T.eyeSize : e.rx * 2 * dw * 3.4 * (T.eyeSize / 0.5);
+    // 동그랗고 귀엽게: 세로로 늘이고 가로는 살짝 줄임
+    const pw = vis * EYE_CROP * (1 - (T.round - 1) * 0.25), ph = ((vis * EYE_CROP * EYE_H) / EYE_W) * T.round;
+    // 눈이 하나뿐인 옆모습 캐릭터는 보이는 쪽 눈
+    const img = eyes.length === 1 ? fp.eyes[(prep.facing ?? 1) > 0 ? 1 : 0] : fp.eyes[i];
+    // 눈과 입 사이가 너무 좁지 않게 눈은 살짝 위로, 눈 사이는 넓게(순한 인상)
+    const lift = gap * 0.08;
+    const ex = eyes.length >= 2 ? midX + (e.cx - midX) * T.spread : e.cx;
+    // 눈꼬리 기울기: 화면 왼쪽 눈은 시계 방향, 오른쪽 눈은 반대로 돌리면 바깥 끝이 올라감
+    const side = eyes.length >= 2 ? (i === 0 ? 1 : -1) : (prep.facing ?? 1) > 0 ? -1 : 1;
+    ctx.save();
+    ctx.translate(-dw / 2 + ex * dw + ox, -dh / 2 + e.cy * dh + oy - lift);
+    ctx.rotate(((side * T.tilt) * Math.PI) / 180);
+    ctx.drawImage(img, -pw / 2, -ph / 2, pw, ph);
+    ctx.restore();
+  });
+  const mt = prep.mouth;
+  if (mt) {
+    let mx = -dw / 2 + mt.x * dw, my = -dh / 2 + mt.y * dh;
+    const [ox, oy] = warpOffset(mt.x, mt.y, warp);
+    mx += ox;
+    my += oy;
+    const vis = gap ? Math.max(gap * FACE_TUNE.mouthSize, mt.w * dw * 1.2) : mt.w * dw * 1.6;
+    const pw = vis * MOUTH_CROP, ph = (pw * MOUTH_H) / MOUTH_W;
+    // 눈과 입 사이를 조금 띄우려고 입은 살짝 아래로 (두 눈 사이 거리 기준)
+    my += gap ? gap * FACE_TUNE.mouthDown : mt.w * dw * 0.25;
+    ctx.drawImage(fp.mouth, mx - pw / 2, my - ph * 0.45, pw, ph);
+  }
+  ctx.restore();
 }
 
 function drawMouth(

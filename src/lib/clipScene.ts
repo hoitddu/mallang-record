@@ -1,5 +1,6 @@
 import { decodeBlob } from './audio';
 import { formatDate } from './db';
+import { facePlayerOf } from './faceTrack';
 import { prepareSnapshot, type Prepared } from './images';
 import { analyzeBuffer, computeTrack, estimateFloor } from './motion';
 import type { SceneInfo } from './render';
@@ -52,8 +53,8 @@ export function loadClipAudio(c: Clip): Promise<ClipAudio> {
 }
 
 export async function clipItem(c: Clip): Promise<TimelineItem> {
-  const [a, prep] = await Promise.all([loadClipAudio(c), prepareSnapshot(c.pictureSnapshot, c.id)]);
+  const [a, prep, face] = await Promise.all([loadClipAudio(c), prepareSnapshot(c.pictureSnapshot, c.id), c.face ? facePlayerOf(c.face).catch(() => null) : null]);
   const track = computeTrack(a.rms, { sensitivity: c.anim.sensitivity, speed: c.anim.speed }, a.floor);
   const end = Math.min(c.trimEnd || a.buffer.duration, a.buffer.duration);
-  return { scene: sceneFromClip(c, prep), track, buf: a.buffer, trimStart: Math.max(0, Math.min(c.trimStart, end - 0.1)), trimEnd: end };
+  return { scene: sceneFromClip(c, prep), track, buf: a.buffer, trimStart: Math.max(0, Math.min(c.trimStart, end - 0.1)), trimEnd: end, face };
 }
