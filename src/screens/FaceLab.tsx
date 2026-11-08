@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Stage } from '../components/Stage';
-import { Chips, Notice, Slider, TopBar } from '../components/ui';
+import { Chips, Notice, Slider, Toggle, TopBar } from '../components/ui';
 import { BUILTINS } from '../lib/builtins';
 import { defaultAnim } from '../lib/db';
 import { artSkinColors, extractPatches, FACE_TUNE, FACE_TUNE_DEFAULT, LandmarkSmoother, loadFaceLandmarker, setFaceTune, type FacePatches, type FaceTune } from '../lib/face';
@@ -36,7 +36,7 @@ export function FaceLab() {
     setFaceTune(v);
     setTune({ ...FACE_TUNE });
     // 사진 모드는 눈 수평 맞추기가 오릴 때 들어가므로 다시 오림
-    if (source === 'photo' && 'level' in v) photoPatches();
+    if (source === 'photo' && ('level' in v || 'sameEyes' in v)) photoPatches();
   };
   const videoRef = useRef<HTMLVideoElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -235,6 +235,7 @@ export function FaceLab() {
       <details className="card mt-4 p-4" open>
         <summary className="font-display text-[17px]">눈·입 모양 맞추기</summary>
         <div className="mt-3 space-y-3">
+          <Toggle id="ft-same" label="양쪽 눈 똑같이 (잘 보이는 눈을 거울처럼)" checked={tune.sameEyes} onChange={(v) => changeTune({ sameEyes: v })} />
           <Slider id="ft-tilt" label="눈꼬리 (처짐 ↔ 올라감)" value={tune.tilt} min={-12} max={12} step={1} onChange={(v) => changeTune({ tilt: v })} format={(v) => `${v > 0 ? '+' : ''}${v}°`} />
           <Slider id="ft-spread" label="눈 사이 (좁게 ↔ 넓게)" value={tune.spread} min={0.85} max={1.45} step={0.01} onChange={(v) => changeTune({ spread: v })} format={(v) => `${v.toFixed(2)}배`} />
           <Slider id="ft-round" label="눈 동그랗게" value={tune.round} min={1} max={1.7} step={0.05} onChange={(v) => changeTune({ round: v })} format={(v) => `${v.toFixed(2)}배`} />

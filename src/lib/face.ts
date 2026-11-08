@@ -28,12 +28,14 @@ export interface FaceTune {
   mouthSize: number;
   /** 입을 아래로 내리기 (두 눈 사이 거리 대비) */
   mouthDown: number;
+  /** 양쪽 눈을 똑같이: 더 잘 보이는 눈 하나를 골라 반대쪽에 거울처럼 씀 (고개를 돌려도 두 눈이 같은 모양) */
+  sameEyes: boolean;
 }
 /** 기본 실사 정도: 0 = 그림에 가깝게 (사용자 결정, 2026-11-04) */
 export const FACE_LEVEL_DEFAULT = 0;
 
 // 사용자가 휴대폰에서 직접 맞춘 값 (2026-11-02)
-export const FACE_TUNE_DEFAULT: FaceTune = { level: 0.5, tilt: 4, spread: 1.07, round: 1.4, eyeSize: 0.47, mouthSize: 0.63, mouthDown: 0.2 };
+export const FACE_TUNE_DEFAULT: FaceTune = { level: 0.5, tilt: 4, spread: 1.07, round: 1.4, eyeSize: 0.47, mouthSize: 0.63, mouthDown: 0.2, sameEyes: true };
 const TUNE_KEY = 'mallang-face-tune';
 /** 지금 쓰는 값 (시안 화면에서 바꾸면 이 기기에만 기억) */
 export const FACE_TUNE: FaceTune = (() => {
@@ -157,6 +159,8 @@ const mk = (w: number, h: number) => {
 
 /** 실사 정도별로 조각 캔버스를 따로 둠 (시안 화면에서 세 단계를 나란히 보여주기 위해) */
 const pool = new Map<string, FacePatches>();
+/** 양쪽 눈을 똑같이 쓸 때 고른 눈 (화면 왼쪽 0 / 오른쪽 1) */
+const domEye = new Map<string, number>();
 function patchesFor(key: string): FacePatches {
   let p = pool.get(key);
   if (!p) pool.set(key, (p = { eyes: [mk(EYE_W, EYE_H), mk(EYE_W, EYE_H)], mouth: mk(MOUTH_W, MOUTH_H) }));
@@ -244,8 +248,29 @@ export function extractPatches(src: CanvasImageSource, pts: Pt[], o: FaceStyleOp
   };
   // 거울 모드면 사진 오른쪽 눈(B)이 화면 왼쪽으로
   const [left, right] = o.mirror ? [EYE_B, EYE_A] : [EYE_A, EYE_B];
-  eyeOf(left, P.eyes[0]);
-  eyeOf(right, P.eyes[1]);
+  if (FACE_TUNE.sameEyes) {
+    // 더 크게(카메라에 가깝게) 보이는 눈 하나를 골라 양쪽에 씀. 자주 바뀌어 깜빡이지 않게, 다른 눈이 12% 넘게 커야 바꿈
+    const wOf = (E: typeof EYE_A) => Math.hypot(pts[E.inner].x - pts[E.outer].x, pts[E.inner].y - pts[E.outer].y);
+    const wl = wOf(left), wr = wOf(right);
+    let pick = domEye.get(key) ?? (wl >= wr ? 0 : 1);
+    if (pick === 0 && wr > wl * 1.12) pick = 1;
+    else if (pick === 1 && wl > wr * 1.12) pick = 0;
+    domEye.set(key, pick);
+    const [src, dst] = pick === 0 ? [P.eyes[0], P.eyes[1]] : [P.eyes[1], P.eyes[0]];
+    eyeOf(pick === 0 ? left : right, src);
+    // 반대쪽은 좌우를 뒤집어 그대로
+    const g = dst.getContext('2d')!;
+    g.setTransform(1, 0, 0, 1, 0, 0);
+    g.globalAlpha = 1;
+    g.globalCompositeOperation = 'source-over';
+    g.clearRect(0, 0, dst.width, dst.height);
+    g.setTransform(-1, 0, 0, 1, dst.width, 0);
+    g.drawImage(src, 0, 0);
+    g.setTransform(1, 0, 0, 1, 0, 0);
+  } else {
+    eyeOf(left, P.eyes[0]);
+    eyeOf(right, P.eyes[1]);
+  }
 
   const ml = pts[MOUTH_L], mr = pts[MOUTH_R];
   const mw = Math.hypot(mr.x - ml.x, mr.y - ml.y);
